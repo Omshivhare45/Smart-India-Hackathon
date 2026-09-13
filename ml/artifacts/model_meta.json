@@ -1,0 +1,75 @@
+{
+  "generated_at": "2026-09-11T19:44:23.651044",
+  "data_source": "SYNTHETIC_DEMO",
+  "n_train_rows": 42408,
+  "n_test_rows": 14136,
+  "features": {
+    "numeric": [
+      "day_of_week",
+      "is_weekend",
+      "month",
+      "scheduled_departure_hour",
+      "scheduled_arrival_minutes",
+      "distance_km",
+      "total_distance_km",
+      "remaining_distance_km",
+      "distance_to_next_km",
+      "progress_ratio",
+      "station_index",
+      "total_stops",
+      "stops_remaining",
+      "cumulative_halt_minutes",
+      "halt_minutes",
+      "delay_current_minutes",
+      "current_speed_kmh",
+      "train_hist_avg",
+      "train_station_hist_avg"
+    ],
+    "categorical": [
+      "train_number",
+      "train_type",
+      "season"
+    ]
+  },
+  "target": "delay_next_minutes",
+  "best_model": "GradientBoosting",
+  "ensemble": {
+    "weights": {
+      "GradientBoosting": 0.3414,
+      "RandomForest": 0.3324,
+      "LightGBM": 0.3262
+    }
+  },
+  "test_metrics": {
+    "RandomForest": {
+      "mae": 2.944,
+      "rmse": 5.123,
+      "r2": 0.829
+    },
+    "XGBoost": {
+      "mae": 3.027,
+      "rmse": 5.164,
+      "r2": 0.8262
+    },
+    "LightGBM": {
+      "mae": 3.002,
+      "rmse": 5.133,
+      "r2": 0.8283
+    },
+    "ExtraTrees": {
+      "mae": 3.08,
+      "rmse": 5.281,
+      "r2": 0.8183
+    },
+    "GradientBoosting": {
+      "mae": 2.863,
+      "rmse": 5.028,
+      "r2": 0.8353
+    }
+  },
+  "test_ensemble_metrics": {
+    "mae": 2.877,
+    "rmse": 5.048,
+    "r2": 0.834
+  }
+}

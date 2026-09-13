@@ -1,6 +1,17 @@
-# Trained model artifacts — large, not committed
-artifacts/
+# Trained model artifacts — only the SMALL runtime artifacts are committed so
+# that Render (deploys from Git) can serve /api/predict.
+#
+#   xgb.joblib, et.joblib, rf.joblib  ~3.5MB / ~390MB / ~172MB
+#   et.joblib and rf.joblib exceed GitHub's 100MB per-file limit and are
+#   deliberately NOT tracked — serve them from a Render disk/blob instead.
+#
+# Runtime-required artifacts (committed): model_meta.json, preprocessor.joblib,
+# gb.joblib (best + ensemble), lgbm.joblib (ensemble). All other artifacts are
+# training-only.
 models/
 *.joblib
+!artifacts/preprocessor.joblib
+!artifacts/gb.joblib
+!artifacts/lgbm.joblib
 __pycache__/
 *.pyc

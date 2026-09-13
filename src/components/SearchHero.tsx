@@ -2,30 +2,24 @@
 
 import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import Image from 'next/image';
 import {
   ArrowRightLeft,
   Search,
   MapPin,
   Train as TrainIcon,
-  Compass,
   Calendar,
-  Clock,
   Radio,
-  Navigation,
   ChevronDown,
-  ShieldCheck,
-  Flame,
   ArrowRight,
-  Sparkles,
-  CheckCircle2,
   SlidersHorizontal,
-  RotateCcw,
-  Ticket,
+  TrainFront,
+  Clock,
 } from 'lucide-react';
 import { Train } from '../types/train';
-import { STATIONS, POPULAR_ROUTES, TRAINS, findTrainsByQuery, PNR_RECORDS } from '../data/trainData';
+import { STATIONS, POPULAR_ROUTES, TRAINS } from '../data/trainData';
 
-export type SearchTab = 'stations' | 'trainNumber' | 'stationRadar';
+export type SearchTab = 'stations' | 'trainNumber';
 
 interface SearchHeroProps {
   activeTab: SearchTab;
@@ -36,13 +30,25 @@ interface SearchHeroProps {
   setDestCode: (code: string) => void;
   trainQuery: string;
   setTrainQuery: (q: string) => void;
-  selectedStationRadar: string;
-  setSelectedStationRadar: (code: string) => void;
   onSearchStations: () => void;
   onSelectTrain: (train: Train) => void;
   searched: boolean;
   onModifySearch?: () => void;
 }
+
+const DATE_OPTIONS = (() => {
+  const opts: string[] = [];
+  const today = new Date();
+  const labels = ['Today', 'Tomorrow'];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(today);
+    d.setDate(today.getDate() + i);
+    const day = d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+    const label = i < 2 ? `${labels[i]}, ${day}` : d.toLocaleDateString('en-IN', { weekday: 'short' }) + ', ' + day;
+    opts.push(label);
+  }
+  return opts;
+})();
 
 export const SearchHero: React.FC<SearchHeroProps> = ({
   activeTab,
@@ -53,8 +59,6 @@ export const SearchHero: React.FC<SearchHeroProps> = ({
   setDestCode,
   trainQuery,
   setTrainQuery,
-  selectedStationRadar,
-  setSelectedStationRadar,
   onSearchStations,
   onSelectTrain,
   searched,
@@ -65,7 +69,7 @@ export const SearchHero: React.FC<SearchHeroProps> = ({
   const [trainDropdownOpen, setTrainDropdownOpen] = useState(false);
   const [sourceFilter, setSourceFilter] = useState('');
   const [destFilter, setDestFilter] = useState('');
-  const [travelDate, setTravelDate] = useState('Today, 11 Sep');
+  const [travelDate, setTravelDate] = useState(DATE_OPTIONS[0]);
   const [isSwapping, setIsSwapping] = useState(false);
   const [isExpanded, setIsExpanded] = useState(true);
 
@@ -120,24 +124,28 @@ export const SearchHero: React.FC<SearchHeroProps> = ({
     return found ? found.city : code;
   };
 
+  const collapseAfterAction = () => {
+    if (searched) setIsExpanded(false);
+  };
+
   // ==========================================
   // CASE 1: SEARCHED STATE (COMPACT TOP BAR)
   // ==========================================
   if (searched && !isExpanded) {
     return (
-      <section className="pt-24 pb-4 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
-        <div className="bg-white rounded-3xl p-4 sm:p-5 shadow-soft border border-[#EFE8DE] flex flex-col md:flex-row items-center justify-between gap-4">
+      <section className="pt-4 pb-4 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
+        <div className="bg-white rounded-2xl p-4 sm:p-5 shadow-soft border border-[#E2E8F0] flex flex-col md:flex-row items-center justify-between gap-4">
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex items-center gap-2">
-              <span className="w-8 h-8 rounded-xl bg-[#FFF2EB] text-[#FF5A1F] flex items-center justify-center font-bold text-xs">
+              <span className="w-8 h-8 rounded-xl bg-[#EEF4FC] text-[#1D4ED8] flex items-center justify-center font-bold text-xs">
                 {sourceCode}
               </span>
-              <span className="text-sm font-bold text-[#1C1917]">{getStationShort(sourceCode)}</span>
+              <span className="text-sm font-bold text-[#13213E]">{getStationShort(sourceCode)}</span>
             </div>
 
             <button
               onClick={handleSwapStations}
-              className={`p-1.5 rounded-full bg-[#FAF7F2] hover:bg-[#FFF2EB] text-[#FF5A1F] border border-[#EFE8DE] transition-transform ${
+              className={`p-1.5 rounded-full bg-[#F8FAFC] hover:bg-[#EEF4FC] text-[#1D4ED8] border border-[#E2E8F0] transition-transform ${
                 isSwapping ? 'rotate-180' : ''
               }`}
               title="Swap Stations"
@@ -146,15 +154,15 @@ export const SearchHero: React.FC<SearchHeroProps> = ({
             </button>
 
             <div className="flex items-center gap-2">
-              <span className="w-8 h-8 rounded-xl bg-[#FFF2EB] text-[#FF5A1F] flex items-center justify-center font-bold text-xs">
+              <span className="w-8 h-8 rounded-xl bg-[#EEF4FC] text-[#1D4ED8] flex items-center justify-center font-bold text-xs">
                 {destCode}
               </span>
-              <span className="text-sm font-bold text-[#1C1917]">{getStationShort(destCode)}</span>
+              <span className="text-sm font-bold text-[#13213E]">{getStationShort(destCode)}</span>
             </div>
 
-            <span className="text-[#D6CEC4] hidden sm:inline">•</span>
+            <span className="text-[#B6C2D4] hidden sm:inline">•</span>
 
-            <span className="text-xs font-medium text-[#78716C] bg-[#FAF7F2] px-3 py-1 rounded-full border border-[#EFE8DE]">
+            <span className="text-xs font-medium text-[#64748B] bg-[#F8FAFC] px-3 py-1 rounded-full border border-[#E2E8F0]">
               {travelDate}
             </span>
           </div>
@@ -162,15 +170,15 @@ export const SearchHero: React.FC<SearchHeroProps> = ({
           <div className="flex items-center gap-2 w-full md:w-auto justify-end">
             <button
               onClick={() => setIsExpanded(true)}
-              className="px-4 py-2 rounded-xl bg-[#FAF7F2] hover:bg-[#FFF2EB] text-[#1C1917] hover:text-[#FF5A1F] text-xs font-bold border border-[#EFE8DE] transition-all flex items-center gap-1.5"
+              className="px-4 py-2 rounded-xl bg-white hover:bg-[#F8FAFC] text-[#13213E] text-xs font-bold border border-[#E2E8F0] hover:border-[#1D4ED8]/40 transition-all flex items-center gap-1.5"
             >
-              <SlidersHorizontal className="w-3.5 h-3.5 text-[#FF5A1F]" />
+              <SlidersHorizontal className="w-3.5 h-3.5 text-[#1D4ED8]" />
               <span>Modify Route</span>
             </button>
 
             <button
               onClick={onSearchStations}
-              className="px-5 py-2 rounded-xl bg-[#FF5A1F] hover:bg-[#E44810] text-white text-xs font-bold shadow-orange-glow transition-all flex items-center gap-1.5"
+              className="px-5 py-2 rounded-xl bg-[#1D4ED8] hover:bg-[#2563EB] text-white text-xs font-bold shadow-[0_8px_20px_-6px_rgba(29,78,216,0.4)] transition-all flex items-center gap-1.5"
             >
               <Search className="w-3.5 h-3.5" />
               <span>Refresh Trains</span>
@@ -182,393 +190,333 @@ export const SearchHero: React.FC<SearchHeroProps> = ({
   }
 
   // ==========================================
-  // CASE 2: INITIAL FOCUSED SOURCE TO DESTINATION CARD
-  // (Only this card is visible on screen before entering details)
+  // CASE 2: FULL HORIZONTAL HERO (search left / image right)
   // ==========================================
   return (
     <section
-      className={`px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto transition-all duration-500 ${
-        searched
-          ? 'pt-24 pb-6'
-          : 'min-h-[85vh] flex flex-col justify-center items-center pt-24 pb-12'
+      className={`relative overflow-hidden ${
+        searched ? 'pt-6 pb-8' : 'pt-10 pb-14 sm:pt-14 sm:pb-16'
       }`}
     >
-      <div className="w-full max-w-2xl mx-auto">
-        
-        {/* Welcoming Header */}
-        <div className="text-center mb-6">
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-[#FFF2EB] text-[#FF5A1F] border border-[#FF5A1F]/20 mb-3">
-            <Radio className="w-3.5 h-3.5 animate-pulse text-[#FF5A1F]" />
-            Live Train Status & GPS Spotting
-          </div>
+      {/* Soft light backdrop */}
+      <div className="absolute inset-0 -z-10 bg-gradient-to-br from-[#EFF6FF] via-[#F8FAFC] to-[#F8FAFC]" />
+      <div className="absolute -top-32 -right-24 w-[480px] h-[480px] rounded-full bg-[#2563EB]/[0.06] blur-3xl -z-10" />
+      <div className="absolute -bottom-40 -left-24 w-[420px] h-[420px] rounded-full bg-[#0E7490]/[0.05] blur-3xl -z-10" />
 
-          <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold text-[#1C1917] tracking-tight">
-            Where do you want to go?
-          </h1>
-          <p className="text-sm sm:text-base text-[#78716C] mt-2 font-normal max-w-md mx-auto">
-            Enter your journey details to fetch live train running status, delay countdowns, and platform tracking.
-          </p>
-        </div>
-
-        {/* The Clean Source to Destination Card (Reference Image Center Inspiration) */}
-        <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-soft border border-[#EFE8DE] relative">
-          
-          {/* Segmented Mode Selector */}
-          <div className="flex items-center gap-1.5 p-1.5 bg-[#FAF7F2] rounded-2xl border border-[#EFE8DE] mb-6">
-            <button
-              onClick={() => setActiveTab('stations')}
-              className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all duration-200 ${
-                activeTab === 'stations'
-                  ? 'bg-white text-[#1C1917] shadow-xs border border-[#EFE8DE]'
-                  : 'text-[#78716C] hover:text-[#1C1917]'
-              }`}
-            >
-              <ArrowRightLeft className="w-4 h-4 text-[#FF5A1F]" />
-              <span>Between Stations</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('trainNumber')}
-              className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all duration-200 ${
-                activeTab === 'trainNumber'
-                  ? 'bg-white text-[#1C1917] shadow-xs border border-[#EFE8DE]'
-                  : 'text-[#78716C] hover:text-[#1C1917]'
-              }`}
-            >
-              <TrainIcon className="w-4 h-4 text-[#FF5A1F]" />
-              <span>Train No. / Name</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('stationRadar')}
-              className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all duration-200 ${
-                activeTab === 'stationRadar'
-                  ? 'bg-white text-[#1C1917] shadow-xs border border-[#EFE8DE]'
-                  : 'text-[#78716C] hover:text-[#1C1917]'
-              }`}
-            >
-              <Compass className="w-4 h-4 text-[#FF5A1F]" />
-              <span>Station Board</span>
-            </button>
-          </div>
-
-          {/* TAB 1: BETWEEN STATIONS (Default & Main Focus) */}
-          {activeTab === 'stations' && (
-            <div className="space-y-4">
-              <div className="relative">
-                
-                {/* FROM STATION INPUT */}
-                <div className="relative">
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-[#78716C] mb-1.5">
-                    From Station
-                  </label>
-                  <div
-                    onClick={() => setSourceDropdownOpen(!sourceDropdownOpen)}
-                    className="flex items-center justify-between p-3.5 rounded-2xl bg-[#FAF7F2] border border-[#EFE8DE] hover:border-[#FF5A1F]/50 cursor-pointer transition-all"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-xl bg-white flex items-center justify-center text-[#FF5A1F] shadow-xs">
-                        <MapPin className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <div className="text-sm font-bold text-[#1C1917]">{getStationName(sourceCode)}</div>
-                        <div className="text-xs text-[#78716C]">{getStationShort(sourceCode)}</div>
-                      </div>
-                    </div>
-                    <span className="text-xs font-mono font-bold px-2 py-1 bg-white rounded-lg border border-[#EFE8DE] text-[#1C1917]">
-                      {sourceCode}
-                    </span>
-                  </div>
-
-                  {/* Dropdown list */}
-                  <AnimatePresence>
-                    {sourceDropdownOpen && (
-                      <motion.div
-                        initial={{ opacity: 0, y: -6 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -6 }}
-                        className="absolute top-full left-0 right-0 z-30 mt-2 p-3 bg-white rounded-2xl shadow-xl border border-[#EFE8DE] max-h-60 overflow-y-auto"
-                      >
-                        <input
-                          type="text"
-                          placeholder="Type station name or code..."
-                          value={sourceFilter}
-                          onChange={(e) => setSourceFilter(e.target.value)}
-                          className="w-full px-3 py-2 text-xs rounded-xl bg-[#FAF7F2] border border-[#EFE8DE] focus:outline-none focus:border-[#FF5A1F] mb-2"
-                          autoFocus
-                        />
-                        <div className="space-y-1">
-                          {filteredSources.map((station) => (
-                            <button
-                              key={station.code}
-                              onClick={() => {
-                                setSourceCode(station.code);
-                                setSourceDropdownOpen(false);
-                                setSourceFilter('');
-                              }}
-                              className="w-full text-left px-3 py-2 rounded-xl text-xs hover:bg-[#FFF2EB] flex items-center justify-between group transition-colors"
-                            >
-                              <span className="font-semibold text-[#1C1917] group-hover:text-[#FF5A1F]">
-                                {station.name} ({station.city})
-                              </span>
-                              <span className="font-mono font-bold text-[#78716C]">{station.code}</span>
-                            </button>
-                          ))}
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-
-                {/* CIRCULAR ORANGE SWAP BUTTON */}
-                <div className="relative my-2 flex justify-center z-10">
-                  <button
-                    onClick={handleSwapStations}
-                    title="Swap Origin and Destination"
-                    className={`w-11 h-11 rounded-full bg-[#FF5A1F] text-white flex items-center justify-center shadow-orange-glow hover:bg-[#E44810] active:scale-95 transition-all duration-300 cursor-pointer ${
-                      isSwapping ? 'rotate-180' : ''
-                    }`}
-                  >
-                    <ArrowRightLeft className="w-5 h-5" />
-                  </button>
-                </div>
-
-                {/* TO STATION INPUT */}
-                <div className="relative">
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-[#78716C] mb-1.5">
-                    To Station
-                  </label>
-                  <div
-                    onClick={() => setDestDropdownOpen(!destDropdownOpen)}
-                    className="flex items-center justify-between p-3.5 rounded-2xl bg-[#FAF7F2] border border-[#EFE8DE] hover:border-[#FF5A1F]/50 cursor-pointer transition-all"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-xl bg-white flex items-center justify-center text-[#FF5A1F] shadow-xs">
-                        <MapPin className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <div className="text-sm font-bold text-[#1C1917]">{getStationName(destCode)}</div>
-                        <div className="text-xs text-[#78716C]">{getStationShort(destCode)}</div>
-                      </div>
-                    </div>
-                    <span className="text-xs font-mono font-bold px-2 py-1 bg-white rounded-lg border border-[#EFE8DE] text-[#1C1917]">
-                      {destCode}
-                    </span>
-                  </div>
-
-                  {/* Dropdown list */}
-                  <AnimatePresence>
-                    {destDropdownOpen && (
-                      <motion.div
-                        initial={{ opacity: 0, y: -6 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -6 }}
-                        className="absolute top-full left-0 right-0 z-30 mt-2 p-3 bg-white rounded-2xl shadow-xl border border-[#EFE8DE] max-h-60 overflow-y-auto"
-                      >
-                        <input
-                          type="text"
-                          placeholder="Type destination station or code..."
-                          value={destFilter}
-                          onChange={(e) => setDestFilter(e.target.value)}
-                          className="w-full px-3 py-2 text-xs rounded-xl bg-[#FAF7F2] border border-[#EFE8DE] focus:outline-none focus:border-[#FF5A1F] mb-2"
-                          autoFocus
-                        />
-                        <div className="space-y-1">
-                          {filteredDests.map((station) => (
-                            <button
-                              key={station.code}
-                              onClick={() => {
-                                setDestCode(station.code);
-                                setDestDropdownOpen(false);
-                                setDestFilter('');
-                              }}
-                              className="w-full text-left px-3 py-2 rounded-xl text-xs hover:bg-[#FFF2EB] flex items-center justify-between group transition-colors"
-                            >
-                              <span className="font-semibold text-[#1C1917] group-hover:text-[#FF5A1F]">
-                                {station.name} ({station.city})
-                              </span>
-                              <span className="font-mono font-bold text-[#78716C]">{station.code}</span>
-                            </button>
-                          ))}
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-              </div>
-
-              {/* Date & Filter Row */}
-              <div className="grid grid-cols-2 gap-3 pt-1">
-                <div className="p-3 rounded-2xl bg-[#FAF7F2] border border-[#EFE8DE] flex items-center gap-2.5">
-                  <Calendar className="w-4 h-4 text-[#FF5A1F]" />
-                  <div>
-                    <span className="block text-[10px] uppercase font-bold text-[#78716C]">Date</span>
-                    <span className="text-xs font-bold text-[#1C1917]">{travelDate}</span>
-                  </div>
-                </div>
-
-                <div className="p-3 rounded-2xl bg-[#FAF7F2] border border-[#EFE8DE] flex items-center justify-between">
-                  <div>
-                    <span className="block text-[10px] uppercase font-bold text-[#78716C]">Live GPS Only</span>
-                    <span className="text-xs font-bold text-emerald-600">Active Trains</span>
-                  </div>
-                  <div className="w-10 h-5 bg-[#FF5A1F] rounded-full relative p-0.5 cursor-pointer">
-                    <div className="w-4 h-4 bg-white rounded-full ml-auto shadow-xs" />
-                  </div>
-                </div>
-              </div>
-
-              {/* High-Converting Orange Search Button */}
-              <button
-                onClick={() => {
-                  if (searched) setIsExpanded(false);
-                  onSearchStations();
-                }}
-                className="w-full mt-2 py-4 px-6 rounded-2xl bg-[#FF5A1F] hover:bg-[#E44810] text-white font-bold text-base flex items-center justify-center gap-2 shadow-orange-glow active:scale-[0.99] transition-all duration-200 cursor-pointer"
-              >
-                <Search className="w-5 h-5" />
-                <span>Search Trains & Live Status</span>
-              </button>
+      <div className="px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-16 items-center">
+          {/* ================= LEFT: SEARCH COLUMN ================= */}
+          <div>
+            {/* Eyebrow */}
+            <div className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full text-xs font-bold bg-white text-[#1D4ED8] border border-[#E2E8F0] shadow-xs mb-5">
+              <Radio className="w-3.5 h-3.5 text-[#1D4ED8]" />
+              Train Search &amp; Live Status
             </div>
-          )}
 
-          {/* TAB 2: BY TRAIN NUMBER / NAME */}
-          {activeTab === 'trainNumber' && (
-            <div className="space-y-4">
-              <div className="relative">
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-[#78716C] mb-1.5">
-                  Train Number or Train Name
-                </label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-[#FF5A1F]">
-                    <Search className="w-5 h-5" />
-                  </div>
-                  <input
-                    type="text"
-                    value={trainQuery}
-                    onChange={(e) => {
-                      setTrainQuery(e.target.value);
-                      setTrainDropdownOpen(true);
-                    }}
-                    onFocus={() => setTrainDropdownOpen(true)}
-                    placeholder="e.g. 22436, Vande Bharat, Rajdhani, 12951..."
-                    className="w-full pl-11 pr-4 py-3.5 rounded-2xl bg-[#FAF7F2] border border-[#EFE8DE] text-[#1C1917] placeholder-[#A8A29E] text-sm font-semibold focus:outline-none focus:border-[#FF5A1F] transition-all"
-                  />
-                </div>
+            {/* Headline — on the open background */}
+            <h1 className="text-3xl sm:text-4xl lg:text-[2.75rem] font-extrabold text-[#13213E] tracking-tight leading-tight">
+              Plan your journey across
+              <span className="block text-[#1D4ED8]">Indian Railways.</span>
+            </h1>
+            <p className="text-sm sm:text-base text-[#64748B] mt-3 max-w-md">
+              Search trains between any two stations, check live running status and
+              get platform details for your next trip.
+            </p>
 
-                {/* Autocomplete Suggestions */}
-                {trainDropdownOpen && trainSuggestions.length > 0 && (
-                  <div className="mt-2 p-2 bg-white rounded-2xl border border-[#EFE8DE] shadow-xl space-y-1">
-                    {trainSuggestions.map((t) => (
-                      <button
-                        key={t.id}
-                        onClick={() => {
-                          onSelectTrain(t);
-                          setTrainQuery(`${t.trainNumber} - ${t.trainName}`);
-                          setTrainDropdownOpen(false);
-                          if (searched) setIsExpanded(false);
-                        }}
-                        className="w-full text-left p-3 rounded-xl hover:bg-[#FFF2EB] transition-colors flex items-center justify-between group cursor-pointer"
+            {/* Search panel */}
+            <div className="bg-white rounded-3xl p-5 sm:p-6 shadow-[0_16px_48px_-16px_rgba(30,58,138,0.18)] border border-[#E2E8F0] mt-8">
+              {/* Tabs: Find Trains | Find Train */}
+              <div className="flex items-center gap-1.5 p-1.5 bg-[#F1F5F9] rounded-2xl border border-[#E2E8F0] mb-5">
+                <button
+                  onClick={() => setActiveTab('stations')}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all duration-200 cursor-pointer ${
+                    activeTab === 'stations'
+                      ? 'bg-white text-[#1D4ED8] shadow-soft border border-[#E2E8F0]'
+                      : 'text-[#64748B] hover:text-[#13213E]'
+                  }`}
+                >
+                  <ArrowRightLeft className="w-4 h-4 text-[#1D4ED8]" />
+                  <span>Find Trains</span>
+                </button>
+
+                <button
+                  onClick={() => setActiveTab('trainNumber')}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all duration-200 cursor-pointer ${
+                    activeTab === 'trainNumber'
+                      ? 'bg-white text-[#1D4ED8] shadow-soft border border-[#E2E8F0]'
+                      : 'text-[#64748B] hover:text-[#13213E]'
+                  }`}
+                >
+                  <TrainIcon className="w-4 h-4 text-[#1D4ED8]" />
+                  <span>Find Train</span>
+                </button>
+              </div>
+
+              {/* TAB 1: FIND TRAINS (source → destination) */}
+              {activeTab === 'stations' && (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] md:items-end gap-3">
+                    {/* FROM STATION */}
+                    <div className="relative">
+                      <label className="block text-[11px] font-bold uppercase tracking-wider text-[#64748B] mb-1.5">
+                        From Station
+                      </label>
+                      <div
+                        onClick={() => setSourceDropdownOpen(!sourceDropdownOpen)}
+                        className="flex items-center justify-between p-3 rounded-2xl bg-[#F8FAFC] border border-[#E2E8F0] hover:border-[#1D4ED8]/50 cursor-pointer transition-all"
                       >
-                        <div className="flex items-center gap-3">
-                          <span className="font-mono text-xs font-bold px-2 py-1 rounded-md bg-[#FF5A1F]/10 text-[#FF5A1F]">
-                            {t.trainNumber}
-                          </span>
-                          <div>
-                            <div className="text-sm font-bold text-[#1C1917] group-hover:text-[#FF5A1F]">
-                              {t.trainName}
-                            </div>
-                            <div className="text-xs text-[#78716C]">
-                              {t.sourceName} ➔ {t.destinationName}
-                            </div>
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-9 h-9 shrink-0 rounded-xl bg-[#EEF4FC] flex items-center justify-center text-[#1D4ED8]">
+                            <MapPin className="w-4 h-4" />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="text-sm font-bold text-[#13213E] truncate">{getStationName(sourceCode)}</div>
+                            <div className="text-xs text-[#64748B]">{getStationShort(sourceCode)}</div>
                           </div>
                         </div>
-                        <span className="text-xs font-semibold text-emerald-600 flex items-center gap-1">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
-                          Track
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Quick Select Popular Trains */}
-              <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-[#78716C] mb-2">
-                  Popular Express Services
-                </label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {TRAINS.slice(0, 4).map((t) => (
-                    <button
-                      key={t.id}
-                      onClick={() => {
-                        onSelectTrain(t);
-                        if (searched) setIsExpanded(false);
-                      }}
-                      className="p-3 rounded-xl bg-[#FAF7F2] border border-[#EFE8DE] hover:border-[#FF5A1F] text-left transition-all group flex items-center justify-between cursor-pointer"
-                    >
-                      <div>
-                        <div className="text-xs font-bold text-[#1C1917] group-hover:text-[#FF5A1F]">
-                          {t.trainNumber} {t.trainName}
-                        </div>
-                        <div className="text-[11px] text-[#78716C]">
-                          {t.sourceCode} ➔ {t.destinationCode}
-                        </div>
+                        <ChevronDown className="w-4 h-4 text-[#94A3B8] ml-2 shrink-0" />
                       </div>
-                      <ArrowRight className="w-4 h-4 text-[#A8A29E] group-hover:text-[#FF5A1F] group-hover:translate-x-1 transition-all" />
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
 
-          {/* TAB 3: STATION RADAR BOARD */}
-          {activeTab === 'stationRadar' && (
-            <div className="space-y-4">
-              <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-[#78716C] mb-1.5">
-                  Select Railway Terminal
-                </label>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                  {STATIONS.slice(0, 6).map((st) => (
+                      <AnimatePresence>
+                        {sourceDropdownOpen && (
+                          <motion.div
+                            initial={{ opacity: 0, y: -6 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -6 }}
+                            className="absolute top-full left-0 right-0 z-30 mt-2 p-3 bg-white rounded-2xl shadow-card-hover border border-[#E2E8F0] max-h-60 overflow-y-auto"
+                          >
+                            <input
+                              type="text"
+                              placeholder="Type station name or code..."
+                              value={sourceFilter}
+                              onChange={(e) => setSourceFilter(e.target.value)}
+                              className="w-full px-3 py-2 text-xs rounded-xl bg-[#F8FAFC] border border-[#E2E8F0] focus:outline-none focus:border-[#1D4ED8] mb-2 text-[#13213E]"
+                              autoFocus
+                            />
+                            <div className="space-y-1">
+                              {filteredSources.map((station) => (
+                                <button
+                                  key={station.code}
+                                  onClick={() => {
+                                    setSourceCode(station.code);
+                                    setSourceDropdownOpen(false);
+                                    setSourceFilter('');
+                                  }}
+                                  className="w-full text-left px-3 py-2 rounded-xl text-xs hover:bg-[#F4F7FB] flex items-center justify-between group transition-colors cursor-pointer"
+                                >
+                                  <span className="font-semibold text-[#13213E] group-hover:text-[#1D4ED8]">
+                                    {station.name} ({station.city})
+                                  </span>
+                                  <span className="font-mono font-bold text-[#64748B]">{station.code}</span>
+                                </button>
+                              ))}
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+
+                    {/* SWAP BUTTON */}
+                    <div className="flex justify-center md:mb-[10px] z-10">
+                      <button
+                        onClick={handleSwapStations}
+                        title="Swap Origin and Destination"
+                        className={`w-11 h-11 rounded-full bg-[#1D4ED8] text-white flex items-center justify-center shadow-[0_8px_20px_-6px_rgba(29,78,216,0.4)] hover:bg-[#2563EB] active:scale-95 transition-all duration-300 cursor-pointer border-4 border-white ${
+                          isSwapping ? 'rotate-180' : ''
+                        }`}
+                      >
+                        <ArrowRightLeft className="w-4.5 h-4.5" />
+                      </button>
+                    </div>
+
+                    {/* TO STATION */}
+                    <div className="relative">
+                      <label className="block text-[11px] font-bold uppercase tracking-wider text-[#64748B] mb-1.5">
+                        To Station
+                      </label>
+                      <div
+                        onClick={() => setDestDropdownOpen(!destDropdownOpen)}
+                        className="flex items-center justify-between p-3 rounded-2xl bg-[#F8FAFC] border border-[#E2E8F0] hover:border-[#1D4ED8]/50 cursor-pointer transition-all"
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-9 h-9 shrink-0 rounded-xl bg-[#EEF4FC] flex items-center justify-center text-[#1D4ED8]">
+                            <MapPin className="w-4 h-4" />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="text-sm font-bold text-[#13213E] truncate">{getStationName(destCode)}</div>
+                            <div className="text-xs text-[#64748B]">{getStationShort(destCode)}</div>
+                          </div>
+                        </div>
+                        <ChevronDown className="w-4 h-4 text-[#94A3B8] ml-2 shrink-0" />
+                      </div>
+
+                      <AnimatePresence>
+                        {destDropdownOpen && (
+                          <motion.div
+                            initial={{ opacity: 0, y: -6 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -6 }}
+                            className="absolute top-full left-0 right-0 z-30 mt-2 p-3 bg-white rounded-2xl shadow-card-hover border border-[#E2E8F0] max-h-60 overflow-y-auto"
+                          >
+                            <input
+                              type="text"
+                              placeholder="Type destination station or code..."
+                              value={destFilter}
+                              onChange={(e) => setDestFilter(e.target.value)}
+                              className="w-full px-3 py-2 text-xs rounded-xl bg-[#F8FAFC] border border-[#E2E8F0] focus:outline-none focus:border-[#1D4ED8] mb-2 text-[#13213E]"
+                              autoFocus
+                            />
+                            <div className="space-y-1">
+                              {filteredDests.map((station) => (
+                                <button
+                                  key={station.code}
+                                  onClick={() => {
+                                    setDestCode(station.code);
+                                    setDestDropdownOpen(false);
+                                    setDestFilter('');
+                                  }}
+                                  className="w-full text-left px-3 py-2 rounded-xl text-xs hover:bg-[#F4F7FB] flex items-center justify-between group transition-colors cursor-pointer"
+                                >
+                                  <span className="font-semibold text-[#13213E] group-hover:text-[#1D4ED8]">
+                                    {station.name} ({station.city})
+                                  </span>
+                                  <span className="font-mono font-bold text-[#64748B]">{station.code}</span>
+                                </button>
+                              ))}
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                  </div>
+
+                  {/* Date + Search */}
+                  <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3 pt-1">
+                    <div className="p-3 rounded-2xl bg-[#F8FAFC] border border-[#E2E8F0] flex items-center gap-2.5">
+                      <Calendar className="w-4 h-4 text-[#1D4ED8]" />
+                      <div className="flex-1">
+                        <span className="block text-[10px] uppercase font-bold text-[#64748B]">Journey Date</span>
+                        <select
+                          value={travelDate}
+                          onChange={(e) => setTravelDate(e.target.value)}
+                          className="w-full bg-transparent text-xs font-bold text-[#13213E] outline-none cursor-pointer appearance-none"
+                        >
+                          {DATE_OPTIONS.map((d) => (
+                            <option key={d} value={d}>
+                              {d}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
                     <button
-                      key={st.code}
-                      onClick={() => setSelectedStationRadar(st.code)}
-                      className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
-                        selectedStationRadar === st.code
-                          ? 'bg-[#FF5A1F] text-white border-[#FF5A1F] shadow-orange-glow'
-                          : 'bg-[#FAF7F2] border-[#EFE8DE] text-[#1C1917] hover:border-[#FF5A1F]/50'
-                      }`}
+                      onClick={() => {
+                        collapseAfterAction();
+                        onSearchStations();
+                      }}
+                      className="sm:w-auto px-8 py-3.5 rounded-2xl bg-[#1D4ED8] hover:bg-[#2563EB] text-white font-bold text-sm flex items-center justify-center gap-2 shadow-[0_8px_24px_-8px_rgba(29,78,216,0.5)] active:scale-[0.99] transition-all duration-200 cursor-pointer"
                     >
-                      <span className="block font-mono text-xs font-bold">{st.code}</span>
-                      <span className="text-xs font-semibold line-clamp-1">{st.name}</span>
+                      <Search className="w-4 h-4" />
+                      <span>Find Trains</span>
                     </button>
-                  ))}
+                  </div>
                 </div>
-              </div>
+              )}
 
-              <button
-                onClick={() => {
-                  onSearchStations();
-                  if (searched) setIsExpanded(false);
-                }}
-                className="w-full py-3.5 rounded-2xl bg-[#FF5A1F] hover:bg-[#E44810] text-white font-bold text-sm flex items-center justify-center gap-2 shadow-orange-glow transition-all cursor-pointer"
-              >
-                <Compass className="w-4 h-4" />
-                <span>View Terminal Departure Board</span>
-              </button>
-            </div>
-          )}
+              {/* TAB 2: FIND TRAIN (number / name) */}
+              {activeTab === 'trainNumber' && (
+                <div className="space-y-4">
+                  <div className="relative">
+                    <label className="block text-[11px] font-bold uppercase tracking-wider text-[#64748B] mb-1.5">
+                      Train Number or Train Name
+                    </label>
+                    <div className="relative">
+                      <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-[#1D4ED8]">
+                        <Search className="w-5 h-5" />
+                      </div>
+                      <input
+                        type="text"
+                        value={trainQuery}
+                        onChange={(e) => {
+                          setTrainQuery(e.target.value);
+                          setTrainDropdownOpen(true);
+                        }}
+                        onFocus={() => setTrainDropdownOpen(true)}
+                        placeholder="e.g. 22436, Vande Bharat, Rajdhani, 12951..."
+                        className="w-full pl-11 pr-4 py-3.5 rounded-2xl bg-[#F8FAFC] border border-[#E2E8F0] text-[#13213E] placeholder-[#94A3B8] text-sm font-semibold focus:outline-none focus:border-[#1D4ED8] transition-all"
+                      />
+                    </div>
 
-          {/* Popular Fast Routes Pills */}
-          <div className="mt-6 pt-5 border-t border-[#EFE8DE]">
-            <div className="flex items-center gap-1.5 text-xs font-bold text-[#78716C] mb-2.5">
-              <Flame className="w-4 h-4 text-[#FF5A1F]" />
-              Trending Routes:
+                    {trainDropdownOpen && trainSuggestions.length > 0 && (
+                      <div className="mt-2 p-2 bg-white rounded-2xl border border-[#E2E8F0] shadow-card-hover space-y-1">
+                        {trainSuggestions.map((t) => (
+                          <button
+                            key={t.id}
+                            onClick={() => {
+                              onSelectTrain(t);
+                              setTrainQuery(`${t.trainNumber} - ${t.trainName}`);
+                              setTrainDropdownOpen(false);
+                              collapseAfterAction();
+                            }}
+                            className="w-full text-left p-3 rounded-xl hover:bg-[#F4F7FB] transition-colors flex items-center justify-between group cursor-pointer"
+                          >
+                            <div className="flex items-center gap-3">
+                              <span className="font-mono text-xs font-bold px-2 py-1 rounded-md bg-[#EEF4FC] text-[#1D4ED8]">
+                                {t.trainNumber}
+                              </span>
+                              <div>
+                                <div className="text-sm font-bold text-[#13213E] group-hover:text-[#1D4ED8]">
+                                  {t.trainName}
+                                </div>
+                                <div className="text-xs text-[#64748B]">
+                                  {t.sourceName} → {t.destinationName}
+                                </div>
+                              </div>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold uppercase tracking-wider text-[#64748B] mb-2">
+                      Popular Trains
+                    </label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {TRAINS.slice(0, 4).map((t) => (
+                        <button
+                          key={t.id}
+                          onClick={() => {
+                            onSelectTrain(t);
+                            collapseAfterAction();
+                          }}
+                          className="p-3 rounded-xl bg-[#F8FAFC] border border-[#E2E8F0] hover:border-[#1D4ED8] text-left transition-all group flex items-center justify-between cursor-pointer"
+                        >
+                          <div>
+                            <div className="text-xs font-bold text-[#13213E] group-hover:text-[#1D4ED8]">
+                              {t.trainNumber} {t.trainName}
+                            </div>
+                            <div className="text-[11px] text-[#64748B]">
+                              {t.sourceCode} → {t.destinationCode}
+                            </div>
+                          </div>
+                          <ArrowRight className="w-4 h-4 text-[#94A3B8] group-hover:text-[#1D4ED8] group-hover:translate-x-1 transition-all" />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
-            <div className="flex flex-wrap gap-2">
+
+            {/* Quick access: trending routes */}
+            <div className="mt-5 flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 text-xs font-bold text-[#64748B] mr-1">
+                <TrainFront className="w-4 h-4 text-[#1D4ED8]" />
+                Trending Routes:
+              </span>
               {POPULAR_ROUTES.slice(0, 4).map((route, idx) => (
                 <button
                   key={idx}
@@ -576,29 +524,63 @@ export const SearchHero: React.FC<SearchHeroProps> = ({
                     setSourceCode(route.from);
                     setDestCode(route.to);
                     setActiveTab('stations');
+                    collapseAfterAction();
                     onSearchStations();
-                    if (searched) setIsExpanded(false);
                   }}
-                  className="px-3 py-1.5 rounded-full text-xs font-medium bg-[#FAF7F2] hover:bg-[#FFF2EB] text-[#57534E] hover:text-[#FF5A1F] border border-[#EFE8DE] transition-all duration-200 cursor-pointer"
+                  className="px-3.5 py-1.5 rounded-full text-xs font-medium bg-white hover:bg-[#EEF4FC] text-[#4A5A79] hover:text-[#1D4ED8] border border-[#E2E8F0] hover:border-[#1D4ED8]/40 transition-all duration-200 cursor-pointer shadow-[0_1px_2px_rgba(16,24,40,0.04)]"
                 >
                   {route.label}
                 </button>
               ))}
             </div>
+
+            {/* Trust strip */}
+            <div className="mt-6 flex flex-wrap items-center gap-x-6 gap-y-2 text-[11px] font-semibold text-[#64748B]">
+              <span className="inline-flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5 text-[#1D4ED8]" />
+                Live running status
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <MapPin className="w-3.5 h-3.5 text-[#1D4ED8]" />
+                Platform &amp; schedule info
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <ArrowRightLeft className="w-3.5 h-3.5 text-[#0E7490]" />
+                Regional rail network
+              </span>
+            </div>
+          </div>
+
+          {/* ================= RIGHT: HERO IMAGE ================= */}
+          <div className="relative hidden lg:block">
+            <div className="relative rounded-3xl overflow-hidden border border-[#E2E8F0] shadow-[0_24px_64px_-24px_rgba(30,58,138,0.35)] aspect-[4/3] min-h-[440px]">
+              <Image
+                src="/hero.avif"
+                alt="High-speed passenger train across the Indian rail network"
+                fill
+                priority
+                sizes="(min-width: 1024px) 50vw, 100vw"
+                className="object-cover"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-[#0F1E3D]/60 via-transparent to-transparent" />
+
+              {/* Caption chip */}
+              <div className="absolute bottom-4 left-4 right-4">
+                <div className="inline-flex items-center gap-2 pl-3 pr-4 py-2.5 rounded-2xl bg-white/95 backdrop-blur border border-white/60 shadow-lg">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                  <div>
+                    <span className="block text-[11px] font-bold text-[#13213E] leading-none">
+                      Rail traffic rolling smoothly
+                    </span>
+                    <span className="block text-[10px] text-[#64748B] mt-0.5 leading-none">
+                      Search trains to check status &amp; platforms
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
-
-        {searched && (
-          <div className="text-center mt-3">
-            <button
-              onClick={() => setIsExpanded(false)}
-              className="text-xs text-[#78716C] hover:text-[#1C1917] underline font-medium"
-            >
-              Collapse search box ➔
-            </button>
-          </div>
-        )}
-
       </div>
     </section>
   );

@@ -1,0 +1,113 @@
+[
+  {
+    "timestamp": "2026-09-11T19:36:16.512885",
+    "data_source": "SYNTHETIC_DEMO",
+    "metrics": {
+      "RandomForest": {
+        "mae": 2.944,
+        "rmse": 5.123,
+        "r2": 0.829
+      },
+      "XGBoost": {
+        "mae": 3.027,
+        "rmse": 5.164,
+        "r2": 0.8262
+      },
+      "LightGBM": {
+        "mae": 3.002,
+        "rmse": 5.133,
+        "r2": 0.8283
+      },
+      "ExtraTrees": {
+        "mae": 3.08,
+        "rmse": 5.281,
+        "r2": 0.8183
+      },
+      "GradientBoosting": {
+        "mae": 2.863,
+        "rmse": 5.028,
+        "r2": 0.8353
+      }
+    },
+    "ensemble_metrics": {
+      "mae": 2.877,
+      "rmse": 5.048,
+      "r2": 0.834
+    },
+    "best_model": "GradientBoosting"
+  },
+  {
+    "timestamp": "2026-09-11T19:40:26.954729",
+    "data_source": "SYNTHETIC_DEMO",
+    "metrics": {
+      "RandomForest": {
+        "mae": 2.944,
+        "rmse": 5.123,
+        "r2": 0.829
+      },
+      "XGBoost": {
+        "mae": 3.027,
+        "rmse": 5.164,
+        "r2": 0.8262
+      },
+      "LightGBM": {
+        "mae": 3.002,
+        "rmse": 5.133,
+        "r2": 0.8283
+      },
+      "ExtraTrees": {
+        "mae": 3.08,
+        "rmse": 5.281,
+        "r2": 0.8183
+      },
+      "GradientBoosting": {
+        "mae": 2.863,
+        "rmse": 5.028,
+        "r2": 0.8353
+      }
+    },
+    "ensemble_metrics": {
+      "mae": 2.877,
+      "rmse": 5.048,
+      "r2": 0.834
+    },
+    "best_model": "GradientBoosting"
+  },
+  {
+    "timestamp": "2026-09-11T19:44:23.654229",
+    "data_source": "SYNTHETIC_DEMO",
+    "metrics": {
+      "RandomForest": {
+        "mae": 2.944,
+        "rmse": 5.123,
+        "r2": 0.829
+      },
+      "XGBoost": {
+        "mae": 3.027,
+        "rmse": 5.164,
+        "r2": 0.8262
+      },
+      "LightGBM": {
+        "mae": 3.002,
+        "rmse": 5.133,
+        "r2": 0.8283
+      },
+      "ExtraTrees": {
+        "mae": 3.08,
+        "rmse": 5.281,
+        "r2": 0.8183
+      },
+      "GradientBoosting": {
+        "mae": 2.863,
+        "rmse": 5.028,
+        "r2": 0.8353
+      }
+    },
+    "ensemble_metrics": {
+      "mae": 2.877,
+      "rmse": 5.048,
+      "r2": 0.834
+    },
+    "best_model": "GradientBoosting"
+  }
+]

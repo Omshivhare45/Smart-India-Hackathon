@@ -14,7 +14,18 @@ Endpoints:
 from __future__ import annotations
 
 import json
+import sys
+from pathlib import Path
 from typing import Optional
+
+# Make the `ml` package importable regardless of the working directory.
+# Render deploys with Root Directory = "ml" and starts `uvicorn api.main:app`,
+# where the repo root (parent of ml/) is NOT on sys.path. Inserting it keeps
+# the absolute `from ml import ...` imports working while nothing changes for
+# local runs from the repository root (`python -m uvicorn ml.api.main:app`).
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
 import pandas as pd
 from fastapi import FastAPI, HTTPException

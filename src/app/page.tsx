@@ -1,28 +1,21 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  Train as TrainIcon, 
-  Search, 
-  MapPin, 
-  Radio, 
-  Navigation, 
-  AlertCircle, 
-  CheckCircle2, 
-  Sparkles,
-  ArrowRight,
+import {
   TrendingUp,
+  Radio,
   ShieldCheck,
-  Compass,
-  Heart,
-  Clock,
-  Ticket,
-  ExternalLink,
-  ChevronDown
+  Navigation,
+  TimerOff,
+  AlarmClock,
+  Route,
+  Radar,
+  Sparkles,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
-import { Navbar } from '../components/Navbar';
+import { AppShell } from '../components/layout/AppShell';
+import { VIEW_META } from '../components/layout/navConfig';
 import { ParticleBackground } from '../components/ParticleBackground';
 import { SearchHero } from '../components/SearchHero';
 import { TrainCard } from '../components/TrainCard';
@@ -30,12 +23,23 @@ import { LiveTrainTracker } from '../components/LiveTrainTracker';
 import { StationRadar } from '../components/StationRadar';
 import { CoachSeatModal } from '../components/CoachSeatModal';
 import { PNRStatusCard } from '../components/PNRStatusCard';
+import { Dashboard } from '../components/Dashboard';
+import { AnalyticsView } from '../components/views/AnalyticsView';
+import { WeatherView } from '../components/views/WeatherView';
+import { SettingsView } from '../components/views/SettingsView';
+import { AboutView } from '../components/views/AboutView';
 import { TRAINS, STATIONS } from '../data/trainData';
 import { Train } from '../types/train';
 
+type AppView = keyof typeof VIEW_META;
+
+const TRACKING_VIEWS: AppView[] = ['live', 'eta', 'delay', 'route'];
+
 export default function Home() {
+  const [activeView, setActiveView] = useState<AppView>('trains');
+
   // Navigation & Search State
-  const [activeTab, setActiveTab] = useState<'stations' | 'trainNumber' | 'stationRadar'>('stations');
+  const [activeTab, setActiveTab] = useState<'stations' | 'trainNumber'>('stations');
   const [sourceCode, setSourceCode] = useState<string>('NDLS');
   const [destCode, setDestCode] = useState<string>('BSB');
   const [trainQuery, setTrainQuery] = useState<string>('');
@@ -70,7 +74,7 @@ export default function Home() {
       particleCount: 50,
       spread: 60,
       origin: { y: 0.4 },
-      colors: ['#FF5A1F', '#FF7A00', '#1C1917'],
+      colors: ['#1D4ED8', '#2563EB', '#0E7490'],
     });
     // Smoothly scroll down to train details
     setTimeout(() => {
@@ -81,199 +85,340 @@ export default function Home() {
     }, 150);
   };
 
+  const scrollToElement = (id: string) => {
+    setTimeout(() => {
+      const el = document.getElementById(id);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 180);
+  };
+
   const handleSelectTrain = (train: Train) => {
     setSearched(true);
     setSelectedLiveTrain(train);
-    setTimeout(() => {
-      const trackEl = document.getElementById('tracking');
-      if (trackEl) {
-        trackEl.scrollIntoView({ behavior: 'smooth' });
-      }
-    }, 150);
+    setActiveView('live');
+    scrollToElement('tracking');
   };
 
+  const handleDashboardTrack = (train: Train) => {
+    setSearched(true);
+    setSelectedLiveTrain(train);
+    setActiveView('live');
+    scrollToElement('tracking');
+  };
+
+  // Focus the relevant section when a tracking view is active.
+  useEffect(() => {
+    if (!selectedLiveTrain || !TRACKING_VIEWS.includes(activeView)) return;
+    const target =
+      activeView === 'eta' || activeView === 'delay' ? 'ai-forecast' : 'tracking';
+    scrollToElement(target);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeView]);
+
+  // Reset scroll on non-tracking view changes.
+  useEffect(() => {
+    if (!TRACKING_VIEWS.includes(activeView)) {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeView]);
+
+  const isTrackingView = TRACKING_VIEWS.includes(activeView);
+  const showDetails = isTrackingView || searched;
+
+  const meta = VIEW_META[activeView];
+
   return (
-    <main className="min-h-screen bg-[#F7F3EE] text-[#1C1917] relative overflow-x-hidden">
-      {/* Floating Warm Golden Particles */}
+    <AppShell active={activeView} onNavigate={(key) => setActiveView(key as AppView)}>
       <ParticleBackground />
 
-      {/* Top Desktop Navbar */}
-      <Navbar />
+      <div className="relative z-10">
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={activeView}
+            initial={{ opacity: 0, y: 14 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.28 }}
+          >
+            {activeView === 'dashboard' && (
+              <div className="px-4 sm:px-6 lg:px-8 py-6 max-w-[1400px] mx-auto">
+                <Dashboard onNavigate={(key) => setActiveView(key as AppView)} onTrackTrain={handleDashboardTrack} />
+              </div>
+            )}
 
-      {/* Main Content Area */}
-      <div className="relative z-10 pb-20">
-        
-        {/* FOCUSED SOURCE TO DESTINATION HERO
-            When searched === false: Center of screen, only this card is visible!
-            When searched === true: Transforms into compact top journey bar. */}
-        <SearchHero
-          activeTab={activeTab}
-          setActiveTab={setActiveTab}
-          sourceCode={sourceCode}
-          setSourceCode={setSourceCode}
-          destCode={destCode}
-          setDestCode={setDestCode}
-          trainQuery={trainQuery}
-          setTrainQuery={setTrainQuery}
-          selectedStationRadar={selectedStationRadar}
-          setSelectedStationRadar={setSelectedStationRadar}
-          onSearchStations={handleSearchStations}
-          onSelectTrain={handleSelectTrain}
-          searched={searched}
-        />
-
-        {/* ============================================================== */}
-        {/* SCROLLING JOURNEY & TRAIN DETAILS (REVEALED ONLY AFTER SEARCH) */}
-        {/* ============================================================== */}
-        <AnimatePresence>
-          {searched && (
-            <motion.div
-              id="journey-details"
-              initial={{ opacity: 0, y: 30 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 30 }}
-              transition={{ duration: 0.4 }}
-              className="space-y-12"
-            >
-              
-              {/* SECTION 1: AVAILABLE TRAINS LIST */}
-              <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-8 space-y-6">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#EFE8DE] pb-4">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="w-2.5 h-2.5 rounded-full bg-[#FF5A1F]" />
-                      <h3 className="text-2xl font-extrabold text-[#1C1917]">
-                        Available Trains: <span className="text-[#FF5A1F]">{sourceCode}</span> ➔ <span className="text-[#1C1917]">{destCode}</span>
-                      </h3>
-                    </div>
-                    <p className="text-xs text-[#78716C] mt-1 font-medium">
-                      {displayTrains.length} Services Found • Click "Track Live Status" to view real-time NTES status & station timeline below
-                    </p>
-                  </div>
-
-                  <div className="flex items-center gap-2 text-xs text-[#1C1917] font-mono bg-white px-3.5 py-1.5 rounded-2xl border border-[#EFE8DE] shadow-xs">
-                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                    <span>Live source: NTES / IRCTC</span>
-                  </div>
+            {activeView === 'station' && (
+              <div className="px-4 sm:px-6 lg:px-8 py-6 space-y-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Radar className="w-4 h-4 text-[#2563EB]" />
+                  <h2 className="text-lg font-bold text-[#13213E]">Select Railway Terminal</h2>
                 </div>
-
-                {/* List of Train Cards */}
-                <div className="space-y-4">
-                  {displayTrains.map((train) => (
-                    <TrainCard
-                      key={train.id}
-                      train={train}
-                      onTrackLive={handleSelectTrain}
-                      onOpenCoach={(t) => setCoachModalTrain(t)}
-                    />
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 max-w-[900px]">
+                  {STATIONS.slice(0, 8).map((st) => (
+                    <button
+                      key={st.code}
+                      onClick={() => setSelectedStationRadar(st.code)}
+                      className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                        selectedStationRadar === st.code
+                          ? 'bg-[#1D4ED8]/30 text-[#1D4ED8] border-[#2563EB]/50'
+                          : 'bg-[#FFFFFF] border-[#E2E8F0] text-[#13213E] hover:border-[#2563EB]/40'
+                      }`}
+                    >
+                      <span className="block font-mono text-xs font-bold">{st.code}</span>
+                      <span className="text-xs font-semibold line-clamp-1">{st.name}</span>
+                    </button>
                   ))}
                 </div>
-              </div>
-
-              {/* SECTION 2: LIVE TRAIN TRACKER & VERTICAL TIMELINE (Where Is My Train) */}
-              {selectedLiveTrain && (
-                <div id="tracking" className="pt-4">
-                  <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between mb-2">
-                    <span className="text-xs font-mono font-bold text-[#FF5A1F] flex items-center gap-1.5">
-                      <Navigation className="w-3.5 h-3.5 animate-pulse text-[#FF5A1F]" />
-                      REAL-TIME NTES STATUS & STATION TIMELINE
-                    </span>
-                    <span className="text-xs font-medium text-[#78716C]">
-                      Currently Tracking: <strong className="text-[#1C1917]">{selectedLiveTrain.trainNumber} - {selectedLiveTrain.trainName}</strong>
-                    </span>
-                  </div>
-
-                  <LiveTrainTracker
-                    train={selectedLiveTrain}
-                    onOpenCoachLayout={() => setCoachModalTrain(selectedLiveTrain)}
-                  />
-                </div>
-              )}
-
-              {/* SECTION 3: STATION RADAR BOARD */}
-              <div id="stations" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                 <StationRadar
                   stationCode={selectedStationRadar || sourceCode}
                   onSelectTrain={handleSelectTrain}
                 />
               </div>
+            )}
 
-              {/* SECTION 4: TELEMETRY STATS & PNR LOOKUP */}
-              <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-                  <div className="bg-white rounded-3xl p-6 flex items-center gap-4 border border-[#EFE8DE] shadow-soft hover:shadow-card-hover transition-all">
-                    <div className="w-12 h-12 rounded-2xl bg-[#FFF2EB] border border-[#FF5A1F]/20 flex items-center justify-center text-[#FF5A1F] shrink-0">
-                      <TrendingUp className="w-6 h-6" />
-                    </div>
-                    <div>
-                      <span className="text-[11px] font-mono font-bold text-[#78716C] uppercase">Average Punctuality (demo)</span>
-                      <div className="text-xl font-black text-[#1C1917] font-mono mt-0.5">
-                        98.2% <span className="text-emerald-600 text-xs font-sans font-bold">On Time</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="bg-white rounded-3xl p-6 flex items-center gap-4 border border-[#EFE8DE] shadow-soft hover:shadow-card-hover transition-all">
-                    <div className="w-12 h-12 rounded-2xl bg-[#FFF2EB] border border-[#FF5A1F]/20 flex items-center justify-center text-[#FF5A1F] shrink-0">
-                      <Radio className="w-6 h-6 animate-pulse" />
-                    </div>
-                    <div>
-                      <span className="text-[11px] font-mono font-bold text-[#78716C] uppercase">ISRO NavIC Telemetry (demo)</span>
-                      <div className="text-lg font-black text-[#1C1917] font-mono mt-0.5">
-                        Demo <span className="text-amber-600 text-xs font-sans font-bold">no live GPS feed</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="bg-white rounded-3xl p-6 flex items-center gap-4 border border-[#EFE8DE] shadow-soft hover:shadow-card-hover transition-all">
-                    <div className="w-12 h-12 rounded-2xl bg-[#FFF2EB] border border-[#EFE8DE] shadow-soft hover:shadow-card-hover transition-all">
-                      <ShieldCheck className="w-6 h-6 text-emerald-600" />
-                    </div>
-                    <div>
-                      <span className="text-[11px] font-mono font-bold text-[#78716C] uppercase">Kavach Safety Grid (demo)</span>
-                      <div className="text-xl font-black text-[#1C1917] font-mono mt-0.5">
-                        Demo
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* PNR Status Lookup Simulator */}
-                <div id="pnr">
-                  <PNRStatusCard onTrackTrainByNumber={(num) => {
-                    const found = TRAINS.find(t => t.trainNumber === num);
-                    if (found) handleSelectTrain(found);
-                  }} />
-                </div>
+            {activeView === 'analytics' && (
+              <div className="px-4 sm:px-6 lg:px-8 py-6 max-w-[1200px] mx-auto">
+                <AnalyticsView onNavigate={(key) => setActiveView(key as AppView)} />
               </div>
+            )}
 
-              {/* FOOTER */}
-              <footer id="about" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8 border-t border-[#EFE8DE] text-xs text-[#78716C]">
-                <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-7 h-7 rounded-xl bg-[#FF5A1F] flex items-center justify-center text-white shadow-xs">
-                      <TrainIcon className="w-4 h-4" />
+            {activeView === 'weather' && (
+              <div className="px-4 sm:px-6 lg:px-8 py-6 max-w-[1200px] mx-auto">
+                <WeatherView />
+              </div>
+            )}
+
+            {activeView === 'settings' && (
+              <div className="px-4 sm:px-6 lg:px-8 py-6">
+                <SettingsView />
+              </div>
+            )}
+
+            {activeView === 'about' && (
+              <div className="px-4 sm:px-6 lg:px-8 py-6">
+                <AboutView />
+              </div>
+            )}
+
+            {(activeView === 'trains' || isTrackingView) && (
+              <div className="pb-20">
+                {/* FOCUSED SOURCE TO DESTINATION HERO */}
+                <SearchHero
+                  activeTab={activeTab}
+                  setActiveTab={setActiveTab}
+                  sourceCode={sourceCode}
+                  setSourceCode={setSourceCode}
+                  destCode={destCode}
+                  setDestCode={setDestCode}
+                  trainQuery={trainQuery}
+                  setTrainQuery={setTrainQuery}
+                  onSearchStations={handleSearchStations}
+                  onSelectTrain={(t) => {
+                    setSearched(true);
+                    setSelectedLiveTrain(t);
+                    setActiveView('live');
+                    scrollToElement('tracking');
+                  }}
+                  searched={searched}
+                />
+
+                {/* Feature banner for tracking-focused views */}
+                {isTrackingView && (
+                  <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6">
+                    <div className="flex items-center gap-3 rounded-2xl border border-[#2563EB]/25 bg-gradient-to-r from-[#1D4ED8]/20 to-[#FFFFFF] px-5 py-4">
+                      <div className="w-10 h-10 shrink-0 rounded-xl bg-[#2563EB]/15 text-[#1D4ED8] flex items-center justify-center">
+                        {activeView === 'eta' && <AlarmClock className="w-5 h-5" />}
+                        {activeView === 'delay' && <TimerOff className="w-5 h-5" />}
+                        {activeView === 'route' && <Route className="w-5 h-5" />}
+                        {activeView === 'live' && <Radio className="w-5 h-5 animate-pulse" />}
+                      </div>
+                      <div>
+                        <h2 className="font-bold text-[#13213E]">{meta.title}</h2>
+                        <p className="text-xs text-[#64748B] mt-0.5">
+                          {activeView === 'eta' && 'AI arrival forecast toward the next stoppage, computed by the RailBuddy ML engine.'}
+                          {activeView === 'delay' && 'Predicted running delay toward the next stop with model confidence.'}
+                          {activeView === 'route' && 'Station-by-station scheduled vs actual timeline for the tracked service.'}
+                          {activeView === 'live' && 'Real-time NTES running feed with live delay, platform and station sequence.'}
+                        </p>
+                      </div>
                     </div>
-                    <span className="font-extrabold text-sm text-[#1C1917]">
-                      Rail<span className="text-[#FF5A1F]">Buddy</span>
-                    </span>
-                    <span className="text-[#D6CEC4]">|</span>
-                    <span>Where Is My Train Live Status Platform</span>
                   </div>
+                )}
 
-                  <div className="flex items-center gap-6 font-medium">
-                    <a href="#" className="hover:text-[#FF5A1F] transition-colors">Privacy Policy</a>
-                    <a href="#" className="hover:text-[#FF5A1F] transition-colors">Terms of Service</a>
-                    <a href="#" className="hover:text-[#FF5A1F] transition-colors">IRCTC Live API</a>
-                    <a href="#" className="hover:text-[#FF5A1F] transition-colors">CRIS Grid</a>
+                {!searched && isTrackingView && (
+                  <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-6">
+                    <div className="flex items-center gap-3 rounded-2xl border border-[#E2E8F0] bg-[#FFFFFF] px-5 py-4">
+                      <Sparkles className="w-5 h-5 text-[#D97706] shrink-0" />
+                      <p className="text-sm text-[#4A5A79]">
+                        Select a train below or run a search to start <strong className="text-[#13213E]">live tracking</strong> and the AI forecast.
+                      </p>
+                    </div>
                   </div>
-                </div>
-              </footer>
+                )}
 
-            </motion.div>
-          )}
+                {/* ============================================================== */}
+                {/* SCROLLING JOURNEY & TRAIN DETAILS (REVEALED AFTER SEARCH) */}
+                {/* ============================================================== */}
+                <AnimatePresence>
+                  {showDetails && (
+                    <motion.div
+                      id="journey-details"
+                      initial={{ opacity: 0, y: 30 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: 30 }}
+                      transition={{ duration: 0.4 }}
+                      className="space-y-12"
+                    >
+                      {/* SECTION 1: AVAILABLE TRAINS LIST */}
+                      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-8 space-y-6">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#E2E8F0] pb-4">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="w-2.5 h-2.5 rounded-full bg-[#1D4ED8]" />
+                              <h3 className="text-2xl font-extrabold text-[#13213E]">
+                                Available Trains: <span className="text-[#2563EB]">{sourceCode}</span> ➔ <span className="text-[#13213E]">{destCode}</span>
+                              </h3>
+                            </div>
+                            <p className="text-xs text-[#64748B] mt-1 font-medium">
+                              {displayTrains.length} Services Found • Click &quot;Track Live Status&quot; to view real-time NTES status &amp; station timeline below
+                            </p>
+                          </div>
+
+                          <div className="flex items-center gap-2 text-xs text-[#13213E] font-mono bg-[#FFFFFF] px-3.5 py-1.5 rounded-2xl border border-[#E2E8F0] shadow-xs">
+                            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                            <span>Live source: NTES / IRCTC</span>
+                          </div>
+                        </div>
+
+                        {/* Feature hint for ETA / Delay predictions before tracked */}
+                        {isTrackingView && !selectedLiveTrain && (
+                          <div className="space-y-3">
+                            {displayTrains.map((train) => (
+                              <div
+                                key={train.id}
+                                className="rounded-2xl border border-[#E2E8F0] bg-[#FFFFFF] p-4 flex flex-col sm:flex-row sm:items-center gap-3 justify-between"
+                              >
+                                <div className="flex items-center gap-3 min-w-0">
+                                  <span className="font-mono text-xs font-bold px-2 py-1 rounded-lg bg-[#1D4ED8]/10 text-[#2563EB] border border-[#1D4ED8]/25">
+                                    {train.trainNumber}
+                                  </span>
+                                  <div className="min-w-0">
+                                    <div className="text-sm font-bold text-[#13213E] truncate">{train.trainName}</div>
+                                    <div className="text-xs text-[#64748B]">
+                                      {train.sourceName} ➔ {train.destinationName}
+                                    </div>
+                                  </div>
+                                </div>
+                                <button
+                                  onClick={() => handleSelectTrain(train)}
+                                  className="px-4 py-2.5 rounded-xl bg-[#2563EB] hover:bg-[#1D4ED8] text-[#F8FAFC] text-xs font-bold transition-all inline-flex items-center gap-1.5 shrink-0"
+                                >
+                                  <Navigation className="w-3.5 h-3.5" />
+                                  Track Live
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Full train cards */}
+                        {!isTrackingView && (
+                          <div className="space-y-4">
+                            {displayTrains.map((train) => (
+                              <TrainCard
+                                key={train.id}
+                                train={train}
+                                onTrackLive={handleSelectTrain}
+                                onOpenCoach={(t) => setCoachModalTrain(t)}
+                              />
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* SECTION 2: LIVE TRAIN TRACKER & VERTICAL TIMELINE (Where Is My Train) */}
+                      {selectedLiveTrain && (
+                        <div className="pt-4">
+                          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-wrap items-center justify-between gap-2 mb-2">
+                            <span className="text-xs font-mono font-bold text-[#2563EB] flex items-center gap-1.5">
+                              <Navigation className="w-3.5 h-3.5 animate-pulse" />
+                              REAL-TIME NTES STATUS &amp; STATION TIMELINE
+                            </span>
+                            <span className="text-xs font-medium text-[#64748B]">
+                              Currently Tracking: <strong className="text-[#13213E]">{selectedLiveTrain.trainNumber} - {selectedLiveTrain.trainName}</strong>
+                            </span>
+                          </div>
+
+                          <LiveTrainTracker
+                            train={selectedLiveTrain}
+                            onOpenCoachLayout={() => setCoachModalTrain(selectedLiveTrain)}
+                          />
+                        </div>
+                      )}
+
+                      {/* SECTION 3: STATION RADAR BOARD */}
+                      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                        <StationRadar
+                          stationCode={selectedStationRadar || sourceCode}
+                          onSelectTrain={handleSelectTrain}
+                        />
+                      </div>
+
+                      {/* SECTION 4: TELEMETRY STATS & PNR LOOKUP */}
+                      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+                          <div className="bg-[#FFFFFF] rounded-3xl p-6 flex items-center gap-4 border border-[#E2E8F0] shadow-soft hover:shadow-card-hover transition-all">
+                            <div className="w-12 h-12 rounded-2xl bg-[#EEF4FC] border border-[#1D4ED8]/20 flex items-center justify-center text-[#1D4ED8] shrink-0">
+                              <TrendingUp className="w-6 h-6" />
+                            </div>
+                            <div>
+                              <span className="text-[11px] font-mono font-bold text-[#64748B] uppercase">Average Punctuality (demo)</span>
+                              <div className="text-xl font-black text-[#13213E] font-mono mt-0.5">
+                                98.2% <span className="text-emerald-700 text-xs font-sans font-bold">On Time</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="bg-[#FFFFFF] rounded-3xl p-6 flex items-center gap-4 border border-[#E2E8F0] shadow-soft hover:shadow-card-hover transition-all">
+                            <div className="w-12 h-12 rounded-2xl bg-[#EEF4FC] border border-[#1D4ED8]/20 flex items-center justify-center text-[#1D4ED8] shrink-0">
+                              <Radio className="w-6 h-6 animate-pulse" />
+                            </div>
+                            <div>
+                              <span className="text-[11px] font-mono font-bold text-[#64748B] uppercase">ISRO NavIC Telemetry (demo)</span>
+                              <div className="text-lg font-black text-[#13213E] font-mono mt-0.5">
+                                Demo <span className="text-amber-700 text-xs font-sans font-bold">no live GPS feed</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="bg-[#FFFFFF] rounded-3xl p-6 flex items-center gap-4 border border-[#E2E8F0] shadow-soft hover:shadow-card-hover transition-all">
+                            <div className="w-12 h-12 rounded-2xl bg-[#EEF4FC] border border-[#E2E8F0] flex items-center justify-center">
+                              <ShieldCheck className="w-6 h-6 text-emerald-700" />
+                            </div>
+                            <div>
+                              <span className="text-[11px] font-mono font-bold text-[#64748B] uppercase">Kavach Safety Grid (demo)</span>
+                              <div className="text-xl font-black text-[#13213E] font-mono mt-0.5">
+                                Demo
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* PNR Status Lookup Simulator */}
+                        <div id="pnr">
+                          <PNRStatusCard onTrackTrainByNumber={(num) => {
+                            const found = TRAINS.find((t) => t.trainNumber === num);
+                            if (found) handleSelectTrain(found);
+                          }} />
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            )}
+          </motion.div>
         </AnimatePresence>
-
       </div>
 
       {/* Interactive Coach & Seat Modal */}
@@ -287,12 +432,12 @@ export default function Home() {
                 particleCount: 100,
                 spread: 70,
                 origin: { y: 0.6 },
-                colors: ['#FF5A1F', '#FF7A00', '#10B981'],
+                colors: ['#1D4ED8', '#2563EB', '#059669'],
               });
             }}
           />
         )}
       </AnimatePresence>
-    </main>
+    </AppShell>
   );
 }
