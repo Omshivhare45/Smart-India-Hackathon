@@ -159,15 +159,14 @@ def predict(req: PredictRequest):
     stop = train["route"][idx]
     target_stop = train["route"][target_idx]
 
-    total_km = float(train.get("distanceKm") or target_stop.get("distanceKm") or 0.0)
-    dist_km = req.distance_covered_km if req.distance_covered_km is not None else float(stop.get("distanceKm") or 0.0)
-
+    # ---- Journey-level features for the model (real Kaggle schema) ----
     dep_str = train.get("departureTime") or "06:00 AM"
     dep_min = _minutes_of_day(dep_str) or 360.0
-    sched_arr_min = _minutes_of_day(stop.get("scheduledArrival"))
 
-    season_map = {12: "winter", 1: "winter", 2: "winter", 3: "summer", 4: "summer", 5: "summer",
-                  6: "monsoon", 7: "monsoon", 8: "monsoon", 9: "monsoon", 10: "post_monsoon", 11: "post_monsoon"}
+    season_map = {12: "Winter/Fog", 1: "Winter/Fog", 2: "Winter/Fog",
+                  3: "Summer", 4: "Summer", 5: "Summer",
+                  6: "Monsoon", 7: "Monsoon", 8: "Monsoon", 9: "Monsoon",
+                  10: "Post-Monsoon", 11: "Post-Monsoon"}
     jd = req.journey_date
     if jd:
         try:
@@ -177,37 +176,42 @@ def predict(req: PredictRequest):
             y, m, dd = 2026, 9, 11
         import datetime
         d = datetime.date(y, m, dd)
-        season = season_map.get(d.month, "summer")
-        dow = d.weekday()
-        month = d.month
     else:
         import datetime
         d = datetime.date.today()
-        season = season_map.get(d.month, "summer")
-        dow = d.weekday()
-        month = d.month
+    season = season_map.get(d.month, "Autumn")
 
-    cum_halt = sum(float(s.get("haltMinutes") or 0.0) for s in train["route"][:idx])
+    catalog_type = train.get("type") or "Express"
+    train_type_lookup = {
+        "Vande Bharat": "Vande Bharat Express",
+        "Rajdhani": "Rajdhani Express",
+        "Shatabdi": "Shatabdi Express",
+        "Duronto": "Duronto Express",
+        "Superfast": "Superfast Express",
+    }
+    train_type = train_type_lookup.get(catalog_type, f"{catalog_type} Express" if catalog_type != "Express" else "Mail/Express")
+
+    dur = train.get("duration") or "0h 00m"
+    try:
+        _h = int(str(dur).split("h")[0].strip())
+        _m = int(str(dur).split("h")[1].split("m")[0].strip()) if "m" in str(dur).split("h")[1] else 0
+    except Exception:
+        _h, _m = 0, 0
+    travel_hours = float(_h + _m / 60.0)
+    total_km = float(train.get("distanceKm") or target_stop.get("distanceKm") or 0.0)
 
     row = build_feature_row(
         train_number=train["trainNumber"],
-        train_type=train["type"],
+        journey_date=d.isoformat(),
+        train_type=train_type,
+        year=d.year,
+        month=d.month,
+        day_of_week=d.weekday(),
+        departure_hour=(dep_min % 1440) / 60.0,
         season=season,
-        station_index=idx,
-        total_stops=len(train["route"]),
-        distance_km=dist_km,
-        total_distance_km=total_km,
-        distance_to_next_km=float(target_stop.get("distanceKm") or 0.0) - dist_km,
-        scheduled_departure_hour=(dep_min % 1440) / 60.0,
-        scheduled_arrival_minutes=float(sched_arr_min or dep_min),
-        journey_date=req.journey_date,
-        delay_current_minutes=req.delay_current_minutes,
-        current_speed_kmh=req.current_speed_kmh,
-        cumulative_halt_minutes=cum_halt,
-        halt_minutes=float(stop.get("haltMinutes") or 0.0),
-        day_of_week=dow,
-        is_weekend=1 if dow >= 5 else 0,
-        month=month,
+        distance_km=total_km,
+        num_scheduled_stops=max(0, len(train["route"]) - 2),
+        scheduled_travel_hours=travel_hours,
     )
 
     bundle = get_bundle()

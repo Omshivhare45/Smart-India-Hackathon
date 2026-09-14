@@ -1,11 +1,12 @@
 """
-Training pipeline — trains the 4 requested regressors plus a GradientBoosting
-bonus model, evaluates them with MAE / RMSE / R2, auto-selects the best model by
-MAE (primary) then RMSE, and builds a weighted ensemble of the top performers.
+Training pipeline — trains 4 model configurations from 2 algorithms
+(RandomForest A/B and XGBoost A/B), evaluates them with MAE / RMSE / R2,
+auto-selects the best config by MAE (primary) then RMSE, and builds a weighted
+ensemble of the top performers.
 
 Artifacts written to `ml/artifacts/`:
   - preprocessor.joblib      ColumnTransformer (numeric scaler + one-hot)
-  - rf.joblib / xgb.joblib / lgbm.joblib / et.joblib / gb.joblib
+  - rf_a.joblib / rf_b.joblib / xgb_a.joblib / xgb_b.joblib
   - ensemble.joblib
   - model_meta.json          features, metrics, best model, data provenance
   - feature_columns.json     feature list in pipeline order
@@ -15,18 +16,14 @@ Artifacts written to `ml/artifacts/`:
 from __future__ import annotations
 
 import json
+import time
 from datetime import datetime
 
 import joblib
 import numpy as np
 import pandas as pd
-from lightgbm import LGBMRegressor
 from sklearn.compose import ColumnTransformer
-from sklearn.ensemble import (
-    ExtraTreesRegressor,
-    GradientBoostingRegressor,
-    RandomForestRegressor,
-)
+from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
@@ -44,7 +41,8 @@ def _metrics(y_true, y_pred) -> dict:
     mae = float(mean_absolute_error(y_true, y_pred))
     rmse = float(np.sqrt(mean_squared_error(y_true, y_pred)))
     r2 = float(r2_score(y_true, y_pred))
-    return {"mae": round(mae, 3), "rmse": round(rmse, 3), "r2": round(r2, 4)}
+    acc10 = float(np.mean(np.abs(y_pred - y_true) <= 10.0))
+    return {"mae": round(mae, 3), "rmse": round(rmse, 3), "r2": round(r2, 4), "acc10": round(acc10, 4)}
 
 
 def build_preprocessor():
@@ -58,31 +56,34 @@ def build_preprocessor():
     )
 
 
+# 4 model configurations from 2 algorithms. RandomForest uses per-tree
+# max_samples subsampling: with ~1.1M training rows and ~6k one-hot columns this
+# keeps bagging the dominant cost while retaining a high-quality forest.
+#  - RandomForest-A: balanced, depth-bounded forest
+#  - RandomForest-B: deeper forest with stronger leaf/split regularisation
+#  - XGBoost-A:     standard-depth boosted trees
+#  - XGBoost-B:     shallow, conservative boosted trees (lower lr, more trees)
 MODELS = {
-    "RandomForest": lambda: RandomForestRegressor(
-        n_estimators=200, max_depth=18, min_samples_leaf=2,
-        n_jobs=cfg.N_JOBS, random_state=cfg.RANDOM_STATE,
+    "RandomForest-A": lambda: RandomForestRegressor(
+        n_estimators=120, max_depth=16, min_samples_leaf=2,
+        max_samples=200000, n_jobs=cfg.N_JOBS, random_state=cfg.RANDOM_STATE,
     ),
-    "XGBoost": lambda: XGBRegressor(
+    "RandomForest-B": lambda: RandomForestRegressor(
+        n_estimators=150, max_depth=None, min_samples_leaf=5,
+        min_samples_split=10, max_samples=200000, n_jobs=cfg.N_JOBS,
+        random_state=cfg.RANDOM_STATE,
+    ),
+    "XGBoost-A": lambda: XGBRegressor(
         n_estimators=250, max_depth=8, learning_rate=0.08,
         subsample=0.9, colsample_bytree=0.9,
         n_jobs=cfg.N_JOBS, random_state=cfg.RANDOM_STATE,
         verbosity=0, eval_metric="mae",
     ),
-    "LightGBM": lambda: LGBMRegressor(
-        n_estimators=300, max_depth=10, learning_rate=0.08,
-        num_leaves=96, subsample=0.9, colsample_bytree=0.9,
+    "XGBoost-B": lambda: XGBRegressor(
+        n_estimators=600, max_depth=4, learning_rate=0.03,
+        subsample=0.8, colsample_bytree=0.7, reg_lambda=1.0,
         n_jobs=cfg.N_JOBS, random_state=cfg.RANDOM_STATE,
-        verbosity=-1,
-    ),
-    "ExtraTrees": lambda: ExtraTreesRegressor(
-        n_estimators=200, max_depth=None,
-        min_samples_leaf=2, n_jobs=cfg.N_JOBS,
-        random_state=cfg.RANDOM_STATE,
-    ),
-    "GradientBoosting": lambda: GradientBoostingRegressor(
-        n_estimators=200, max_depth=5, learning_rate=0.08,
-        subsample=0.9, random_state=cfg.RANDOM_STATE,
+        verbosity=0, eval_metric="mae",
     ),
 }
 
@@ -132,10 +133,18 @@ def run_training():
     y_tr, y_val = y_train.iloc[:val_rows], y_train.iloc[val_rows:]
 
     pre = build_preprocessor().fit(X_tr)
-    fitted = {
-        name: Pipeline([("pre", pre), ("reg", factory())]).fit(X_tr, y_tr)
-        for name, factory in MODELS.items()
-    }
+    print(f"[train] loaded {len(raw):,} rows (source={source_used}) | partition train={len(X_train):,} val={len(X_val):,} test={len(X_test):,} fit={len(X_tr):,}", flush=True)
+    run_start = time.perf_counter()
+    fitted = {}
+    train_time_s = {}
+    for name, factory in MODELS.items():
+        t0 = time.perf_counter()
+        print(f"[train] fitting {name} ...", flush=True)
+        fitted[name] = Pipeline([("pre", pre), ("reg", factory())]).fit(X_tr, y_tr)
+        train_time_s[name] = round(time.perf_counter() - t0, 2)
+        print(f"[train] {name} done in {train_time_s[name]}s", flush=True)
+    total_train_s = round(time.perf_counter() - run_start, 2)
+    print(f"[train] all fits done in {total_train_s}s | scoring validation + test ...", flush=True)
 
     # Metrics on validation (selection) + final test (reporting)
     val_scores = _score_all(fitted, X_val, y_val)
@@ -167,12 +176,21 @@ def run_training():
         "generated_at": datetime.now().isoformat(),
         "data_source": source_used,
         "n_train_rows": int(len(X_train)),
+        "n_fit_rows": int(len(X_tr)),
+        "n_val_rows": int(len(X_val)),
         "n_test_rows": int(len(X_test)),
+        "split": {
+            "test_fraction": cfg.TEST_FRACTION,
+            "val_fraction": cfg.VAL_FRACTION,
+            "strategy": "chronological by journey_date",
+        },
         "features": {"numeric": cfg.NUMERIC_FEATURES, "categorical": cfg.CATEGORICAL_FEATURES},
         "target": cfg.TARGET,
         "best_model": best_name,
         "ensemble": {"weights": {k: round(v, 4) for k, v in weights.items()}},
-        "test_metrics": {k: {m: round(v[m], 4) for m in ("mae", "rmse", "r2")} for k, v in test_scores.items()},
+        "train_time_seconds": train_time_s,
+        "total_train_seconds": total_train_s,
+        "test_metrics": {k: {m: round(v[m], 4) for m in ("mae", "rmse", "r2", "acc10")} for k, v in test_scores.items()},
         "test_ensemble_metrics": ens_scores,
     }
     cfg.MODEL_META_FILE.write_text(json.dumps(meta, indent=2), encoding="utf-8")
@@ -200,18 +218,33 @@ def run_training():
         "test_scores": test_scores,
         "best_model": best_name,
         "ensemble_scores": ens_scores,
+        "train_time_s": train_time_s,
+        "total_train_s": total_train_s,
+        "row_counts": {
+            "train_partition": int(len(X_train)),
+            "fit": int(len(X_tr)),
+            "val": int(len(X_val)),
+            "test": int(len(X_test)),
+        },
         "fitted": fitted,
     }
 
 
 if __name__ == "__main__":
-    pd.set_option("display.width", 200)
+    pd.set_option("display.width", 240)
     pd.set_option("display.colheader_justify", "left")
     res = run_training()
+    tt = pd.Series(res["train_time_s"], name="train_time_s")
+    print("\n=== ROW COUNTS ===")
+    print(res["row_counts"])
     print("\n=== VALIDATION METRICS (model selection) ===")
-    print(pd.DataFrame(res["val_scores"]).T.rename_axis("model"))
+    vdf = pd.DataFrame(res["val_scores"]).T.rename_axis("model")
+    vdf["train_time_s"] = tt
+    print(vdf)
     print(f"\n=== BEST MODEL: {res['best_model']} ===")
     print("\n=== TEST METRICS (held-out future journeys) ===")
-    print(pd.DataFrame(res["test_scores"]).T.rename_axis("model"))
+    tdf = pd.DataFrame(res["test_scores"]).T.rename_axis("model")
+    tdf["train_time_s"] = tt
+    print(tdf)
     print("\n=== ENSEMBLE TEST METRICS ===")
     print(res["ensemble_scores"])

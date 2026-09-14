@@ -78,53 +78,74 @@ def get_bundle() -> ModelBundle:
 def build_feature_row(
     *,
     train_number: str,
-    station_index: int,
-    total_stops: int,
-    distance_km: float,
-    total_distance_km: float,
-    distance_to_next_km: float,
-    scheduled_departure_hour: float,
-    scheduled_arrival_minutes: float,
     journey_date: str | None = None,
-    delay_current_minutes: float = 0.0,
-    current_speed_kmh: float = 90.0,
     train_type: str = "Express",
-    season: str = "summer",
-    cumulative_halt_minutes: float = 0.0,
-    halt_minutes: float = 0.0,
-    day_of_week: int | None = None,
-    is_weekend: int | None = None,
+    year: int | None = None,
     month: int | None = None,
+    day_of_week: int | None = None,
+    departure_hour: float = 0.0,
+    season: str | None = None,
+    zone: str = "Northern Railway",
+    distance_km: float = 0.0,
+    num_scheduled_stops: int = 0,
+    scheduled_travel_hours: float = 0.0,
+    track_doubled: int = 1,
+    is_hdn_route: int = 0,
+    traction_type: str = "Electric (25kV AC)",
+    is_electrified: int = 1,
+    is_monsoon_season: int | None = None,
+    is_fog_risk: int | None = None,
+    fog_risk_score: float = 0.0,
+    late_incoming_rake: int = 0,
+    maintenance_score: float = 7.0,
+    seat_utilisation_pct: float = 80.0,
+    is_overloaded: int = 0,
 ) -> dict:
-    """Builds a single feature row the model can consume."""
+    """
+    Builds a single feature row the journey-level model can consume.
+
+    All features are pre-journey / at-departure information from the real
+    Kaggle dataset schema. Missing values are filled with neutral defaults that
+    the preprocessor can handle (year/month/day_of_week are inferred from
+    `journey_date` when omitted).
+    """
     d = datetime.now()
-    dow = day_of_week if day_of_week is not None else d.weekday()
+    if journey_date:
+        try:
+            d = datetime.strptime(str(journey_date).strip(), "%Y-%m-%d")
+        except ValueError:
+            d = datetime.now()
+    yr = year if year is not None else d.year
     mon = month if month is not None else d.month
+    dow = day_of_week if day_of_week is not None else d.weekday()
+    if season is None:
+        season = {(12, 1, 2): "Winter/Fog", (3, 4, 5): "Summer", (6, 7, 8, 9): "Monsoon", (10, 11): "Post-Monsoon"}.get(d.month, "Autumn")
+
     return {
         **{c: None for c in cfg.NUMERIC_FEATURES},
         **{c: "NA" for c in cfg.CATEGORICAL_FEATURES},
         "train_number": str(train_number),
         "train_type": train_type,
         "season": season,
-        "day_of_week": dow,
-        "is_weekend": 1 if dow >= 5 else 0 if is_weekend is None else is_weekend,
+        "zone": zone,
+        "traction_type": traction_type,
+        "year": yr,
         "month": mon,
-        "scheduled_departure_hour": scheduled_departure_hour,
-        "scheduled_arrival_minutes": scheduled_arrival_minutes,
-        "distance_km": distance_km,
-        "total_distance_km": total_distance_km,
-        "remaining_distance_km": max(0.0, total_distance_km - distance_km),
-        "distance_to_next_km": distance_to_next_km,
-        "progress_ratio": distance_km / max(1e-6, total_distance_km),
-        "station_index": station_index,
-        "total_stops": total_stops,
-        "stops_remaining": max(0, total_stops - 1 - station_index),
-        "cumulative_halt_minutes": cumulative_halt_minutes,
-        "halt_minutes": halt_minutes,
-        "delay_current_minutes": delay_current_minutes,
-        "current_speed_kmh": current_speed_kmh,
-        "train_hist_avg": None,
-        "train_station_hist_avg": None,
+        "day_of_week": dow,
+        "departure_hour": float(departure_hour),
+        "distance_km": float(distance_km),
+        "num_scheduled_stops": int(num_scheduled_stops),
+        "scheduled_travel_hours": float(scheduled_travel_hours),
+        "track_doubled": int(track_doubled),
+        "is_hdn_route": int(is_hdn_route),
+        "is_electrified": int(is_electrified),
+        "is_monsoon_season": int(is_monsoon_season) if is_monsoon_season is not None else (1 if 6 <= mon <= 9 else 0),
+        "is_fog_risk": int(is_fog_risk) if is_fog_risk is not None else (1 if d.month in (12, 1, 2) else 0),
+        "fog_risk_score": float(fog_risk_score),
+        "late_incoming_rake": int(late_incoming_rake),
+        "maintenance_score": float(maintenance_score),
+        "seat_utilisation_pct": float(seat_utilisation_pct),
+        "is_overloaded": int(is_overloaded),
     }
 
 

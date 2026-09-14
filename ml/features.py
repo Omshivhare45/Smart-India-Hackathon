@@ -16,6 +16,13 @@ import pandas as pd
 
 from ml import config as cfg
 
+# (group_cols, value_col, feature_prefix) — each is added ONLY when the raw
+# frame contains the group/value columns required to compute it.
+HIST_FEATURE_SPECS = [
+    (["train_number"], "delay_current_minutes", "train_hist"),
+    (["train_number", "station_code", "season"], "delay_current_minutes", "train_station_hist"),
+]
+
 
 def _ensure_numeric(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
     for c in cols:
@@ -59,17 +66,14 @@ def build_features(df: pd.DataFrame, train_hist: pd.DataFrame | None = None) -> 
     """
     df = _ensure_numeric(df, cfg.NUMERIC_FEATURES + [cfg.TARGET])
 
+    # Historical-average lag features are only added when the frame actually
+    # carries the source columns they need (e.g. the real journey-level dataset
+    # has no station_code / delay_current_minutes, so they are skipped).
     hist_ref = train_hist if train_hist is not None else df
-    df = with_hist_features(
-        hist_ref, df, ["train_number"], "delay_current_minutes", "train_hist"
-    )
-    df = with_hist_features(
-        hist_ref,
-        df,
-        ["train_number", "station_code", "season"],
-        "delay_current_minutes",
-        "train_station_hist",
-    )
+    for group_cols, value_col, prefix in HIST_FEATURE_SPECS:
+        if value_col not in df.columns or not set(group_cols).issubset(df.columns):
+            continue
+        df = with_hist_features(hist_ref, df, group_cols, value_col, prefix)
 
     # Ensure every feature the model expects exists (defensive defaults).
     for c in cfg.NUMERIC_FEATURES + [cfg.TARGET]:

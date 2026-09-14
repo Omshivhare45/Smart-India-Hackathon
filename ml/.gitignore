@@ -13,5 +13,8 @@ models/
 !artifacts/preprocessor.joblib
 !artifacts/gb.joblib
 !artifacts/lgbm.joblib
+
+# Real training data (large) — do not commit
+data/real/train_delays.csv
 __pycache__/
 *.pyc
