@@ -200,3 +200,142 @@ export async function fetchApiHealth(signal?: AbortSignal): Promise<boolean> {
     return false;
   }
 }
+
+/** Real-time dynamic ETA (GET /api/trains/{no}/prediction) */
+
+export interface FullPredictionTrain {
+  trainNumber: string;
+  trainName: string;
+  type: string;
+  sourceCode: string;
+  sourceName: string;
+  destinationCode: string;
+  destinationName: string;
+  distanceKm: number;
+  duration: string;
+  departureTime: string;
+  arrivalTime: string;
+}
+
+export interface FullPredictionLiveStatus {
+  live_available: boolean;
+  current_station: string | null;
+  current_station_name: string | null;
+  previous_station: string | null;
+  next_station: string | null;
+  current_delay_minutes: number | null;
+  current_speed_kmh: number | null;
+  distance_covered_km: number | null;
+  total_distance_km: number | null;
+  last_updated: string | null;
+  journey_date_used: string | null;
+}
+
+export interface CongestionFactor {
+  name: string;
+  value: number | null;
+  unit: string | null;
+  source: string;
+  score: number | null;
+}
+
+export interface CongestionInfo {
+  score: number | null;
+  level: string;
+  estimated: boolean;
+  basis: string;
+  factors: CongestionFactor[];
+}
+
+export interface FullPredictionBreakdown {
+  ml_predicted_delay: number;
+  current_live_delay: number | null;
+  progress_factor: number;
+  speed_factor: number;
+  congestion_factor: number;
+}
+
+export interface FullPrediction {
+  ml_base_delay: number;
+  live_adjusted_delay: number;
+  confidence: number;
+  model_used: string;
+  target_eta: string | null;
+  target_station: string;
+  scheduled_arrival: string;
+  breakdown: FullPredictionBreakdown;
+  sources: {
+    live_delay: string;
+    progress: string;
+    speed: string;
+    congestion: string;
+    ml_base: string;
+  };
+}
+
+export interface UpcomingStationEta {
+  station_name: string;
+  station_code: string;
+  station_index: number;
+  distance_remaining_km: number;
+  scheduled_arrival: string;
+  predicted_delay_minutes: number;
+  predicted_eta: string | null;
+  confidence: number;
+  delay_source: string;
+}
+
+export interface FullPredictionResponse {
+  train: FullPredictionTrain;
+  live_status: FullPredictionLiveStatus;
+  congestion: CongestionInfo;
+  prediction: FullPrediction;
+  current_station: {
+    station_name: string | null;
+    station_code: string | null;
+    current_delay_minutes: number | null;
+    last_update: string | null;
+  };
+  upcoming_stations: UpcomingStationEta[];
+  generated_at: string;
+}
+
+export async function fetchFullPrediction(
+  trainNumber: string,
+  query: {
+    journey_date?: string;
+    station_code?: string;
+    distance_covered_km?: number;
+    current_speed_kmh?: number;
+  } = {},
+  signal?: AbortSignal,
+): Promise<FullPredictionResponse> {
+  const params = new URLSearchParams();
+  if (query.journey_date) params.set('journey_date', query.journey_date);
+  if (query.station_code) params.set('station_code', query.station_code);
+  if (query.distance_covered_km !== undefined) {
+    params.set('distance_covered_km', String(query.distance_covered_km));
+  }
+  if (query.current_speed_kmh !== undefined) {
+    params.set('current_speed_kmh', String(query.current_speed_kmh));
+  }
+
+  const qs = params.toString();
+  const res = await fetch(
+    `${getApiBaseUrl()}/api/trains/${encodeURIComponent(trainNumber)}/prediction${qs ? `?${qs}` : ''}`,
+    { signal },
+  );
+
+  if (!res.ok) {
+    let body: unknown = null;
+    try {
+      body = await res.json();
+    } catch {
+      /* non-JSON error body — fall through to generic message */
+    }
+    throw new Error(extractErrorDetail(body, res.status));
+  }
+
+  const data: unknown = await res.json();
+  return data as FullPredictionResponse;
+}

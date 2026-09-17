@@ -4,6 +4,7 @@ import {
   getTrainDetails,
   getLiveStatus,
   getTrainsBetween,
+  getTrainRouteGeometry,
   searchTrains,
 } from '../lib/railradar.js';
 
@@ -52,7 +53,7 @@ router.get('/trains/search', async (req, res, next) => {
 });
 
 // ------------------------------------------------------------------
-// GET /api/trains/:number/live?date=...
+// GET /api/trains/:number/live?date=...&includeCoordinates=true&geometry=...&format=...
 // ------------------------------------------------------------------
 router.get('/trains/:number/live', async (req, res, next) => {
   try {
@@ -60,7 +61,46 @@ router.get('/trains/:number/live', async (req, res, next) => {
     if (!TRAIN_NUMBER_RE.test(num)) throw new APIError('INVALID_TRAIN_NUMBER', 'Train number must be 4–6 digits', 400);
     const date = req.query.date ? String(req.query.date) : undefined;
     if (date && !DATE_RE.test(date)) throw new APIError('BAD_REQUEST', '"date" must be in YYYY-MM-DD format', 400);
-    const data = await getLiveStatus(num, { date });
+    const includeCoordinates = parseBoolean(req.query.includeCoordinates);
+    const geometry = parseBoolean(req.query.geometry);
+    const format = req.query.format ? String(req.query.format) : undefined;
+    const data = await getLiveStatus(num, { date, includeCoordinates, geometry, format });
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ------------------------------------------------------------------
+// GET /api/trains/:number/route?format=geojson&stops=true
+// ------------------------------------------------------------------
+
+const routeCache = new Map();
+const ROUTE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
+router.get('/trains/:number/route', async (req, res, next) => {
+  try {
+    const num = String(req.params.number || '').trim();
+    if (!TRAIN_NUMBER_RE.test(num)) throw new APIError('INVALID_TRAIN_NUMBER', 'Train number must be 4–6 digits', 400);
+    const format = req.query.format ? String(req.query.format) : 'geojson';
+    if (!['geojson', 'polyline', 'coordinates'].includes(format)) {
+      throw new APIError('BAD_REQUEST', '"format" must be geojson, polyline or coordinates', 400);
+    }
+    const stops = parseBoolean(req.query.stops, true);
+
+    // Route geometry is static per train -> cache long to protect the quota.
+    const cacheKey = `${num}:${format}:${stops}`;
+    const cached = routeCache.get(cacheKey);
+    if (cached && Date.now() - cached.at < ROUTE_CACHE_TTL_MS) {
+      return res.json({ success: true, data: cached.data, cached: true });
+    }
+
+    const data = await getTrainRouteGeometry(num, { format, stops });
+    routeCache.set(cacheKey, { at: Date.now(), data });
+    if (routeCache.size > 500) {
+      const oldest = [...routeCache.entries()].sort((a, b) => a[1].at - b[1].at).slice(0, 50);
+      for (const [k] of oldest) routeCache.delete(k);
+    }
     res.json({ success: true, data });
   } catch (err) {
     next(err);

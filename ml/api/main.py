@@ -33,6 +33,12 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from ml import config as cfg
 from ml.api.schemas import HealthResponse, PredictionResponse, PredictRequest
+from ml.eta_engine import (
+    compute_dynamic_eta,
+    estimate_congestion,
+    snapshot_from_ntes,
+    station_wise_eta,
+)
 from ml.predict import build_feature_row, expected_eta, get_bundle
 
 app = FastAPI(
@@ -89,6 +95,58 @@ def _resolve_station_index(train, station_code: str) -> int:
         if stop["stationCode"] == station_code:
             return i
     raise HTTPException(404, f"Station {station_code} is not on the route of train {train['trainNumber']}")
+
+
+def _station_index_no_raise(train, station_code, distance_covered_km=None) -> int:
+    """Best-effort route index for a station code (no exceptions on miss)."""
+    code = station_code or ""
+    for i, stop in enumerate(train["route"]):
+        if str(stop.get("stationCode")) == str(code):
+            return i
+    if distance_covered_km is not None:
+        fallback = 0
+        for i, stop in enumerate(train["route"]):
+            km = (stop.get("distanceKm") or 0) or 0
+            if km <= float(distance_covered_km):
+                fallback = i
+            else:
+                break
+        return fallback
+    return 0
+
+
+def _train_meta(train) -> dict:
+    """Public train identity block used by the real-time prediction endpoint."""
+    return {
+        "trainNumber": train.get("trainNumber"),
+        "trainName": train.get("trainName"),
+        "type": train.get("type"),
+        "sourceCode": train.get("sourceCode"),
+        "sourceName": train.get("sourceName"),
+        "destinationCode": train.get("destinationCode"),
+        "destinationName": train.get("destinationName"),
+        "distanceKm": train.get("distanceKm"),
+        "duration": train.get("duration"),
+        "departureTime": train.get("departureTime"),
+        "arrivalTime": train.get("arrivalTime"),
+    }
+
+
+def _route_for_engine(train) -> list:
+    """Catalog route normalized to the ETA engine's schedule-station shape."""
+    out = []
+    for stop in train["route"]:
+        out.append(
+            {
+                "StationCode": stop.get("stationCode"),
+                "StationName": stop.get("stationName"),
+                "Distance": float(stop.get("distanceKm") or 0),
+                "Halt": float(stop.get("haltMinutes") or 0),
+                "STA": stop.get("scheduledArrival") or "",
+                "STD": stop.get("scheduledDeparture") or "",
+            }
+        )
+    return out
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -244,6 +302,151 @@ def predict(req: PredictRequest):
         scheduled_arrival=str(target_sched),
         data_source=meta.get("data_source", "unknown"),
     )
+
+
+@app.get("/api/trains/{train_number}/prediction")
+def live_prediction(
+    train_number: str,
+    journey_date: Optional[str] = None,
+    station_code: Optional[str] = None,
+    distance_covered_km: Optional[float] = None,
+    current_speed_kmh: Optional[float] = None,
+):
+    """
+    Real-Time Dynamic ETA for a train.
+
+    Combines the trained ML base prediction with live NTES data through the
+    Real-Time ETA Engine. Never modifies the ML model / artifacts. If the live
+    feed is unavailable, live fields are marked unavailable and the engine
+    falls back to the ML base prediction.
+    """
+    from datetime import datetime
+
+    from ml.api.live import fetch_debug_payload
+
+    catalog = _load_catalog()
+    train = _get_train(catalog, train_number)
+    route = train["route"]
+
+    # 1) Live NTES payload - graceful fallback when the feed is down.
+    live_payload = None
+    try:
+        live_payload = fetch_debug_payload(str(train_number), journey_date)
+    except Exception:  # noqa: BLE001 - prediction must never 500 on a bad feed
+        live_payload = None
+    live_status = (live_payload or {}).get("live_status") or {}
+
+    # 2) Resolve current position (best effort; defaults to source).
+    current_index = _station_index_no_raise(
+        train,
+        live_status.get("LSTN") or station_code,
+        distance_covered_km,
+    )
+    if current_index > len(route) - 1:
+        current_index = len(route) - 1
+
+    covered = distance_covered_km
+    if covered is None and current_index > 0:
+        covered = float(route[current_index].get("distanceKm") or 0)
+
+    # 3) Base ML prediction (existing trained pipeline - unchanged 22 features).
+    next_index = current_index + 1 if current_index + 1 < len(route) else current_index
+    target_code = route[next_index].get("stationCode")
+    base = predict(
+        PredictRequest(
+            train_number=str(train["trainNumber"]),
+            station_code=str(route[current_index].get("stationCode")) or route[0].get("stationCode"),
+            station_index=current_index,
+            journey_date=journey_date,
+            target=None if next_index == current_index else target_code,
+        )
+    )
+    ml_base_delay = base.predicted_delay_minutes
+
+    # 4) Normalize live fields + schedule for the engine.
+    route_for_engine = _route_for_engine(train)
+    snapshot = snapshot_from_ntes(
+        live_status,
+        route_for_engine,
+        distance_covered_km=covered,
+        current_speed_kmh=current_speed_kmh,
+    )
+
+    # Scheduled average pace (km/h) for the speed factor.
+    sched_avg = None
+    dur = train.get("duration") or ""
+    try:
+        _h = int(str(dur).split("h")[0].strip())
+        _m_part = str(dur).split("h")[1] if "h" in str(dur) else ""
+        _m = int(_m_part.split("m")[0].strip()) if _m_part and "m" in _m_part else 0
+        travel_hours = _h + _m / 60.0
+        total_km = snapshot.get("total_distance_km") or float(train.get("distanceKm") or 0)
+        if travel_hours > 0 and total_km > 0:
+            sched_avg = total_km / travel_hours
+    except Exception:  # noqa: BLE001
+        sched_avg = None
+    snapshot["scheduled_avg_speed_kmh"] = sched_avg
+
+    # 5) Engine: congestion, dynamic ETA, station-wise ETAs.
+    congestion = estimate_congestion(snapshot, ml_base_delay)
+    dynamic = compute_dynamic_eta(
+        ml_base_delay=ml_base_delay,
+        ml_confidence=float(base.confidence),
+        snapshot=snapshot,
+        congestion=congestion,
+    )
+    station_eta = station_wise_eta(
+        schedule_stations=route_for_engine,
+        snapshot=snapshot,
+        projected_delay=float(dynamic["projected"]),
+        final_delay=float(dynamic["final_predicted_delay"]),
+        ml_confidence=float(base.confidence),
+    )
+
+    # 6) Destination ETA from the dynamically corrected delay.
+    dest_stop = route[-1]
+    dest_sched = dest_stop.get("scheduledArrival") or train.get("arrivalTime") or ""
+    if not dest_sched or "Source" in str(dest_sched):
+        dest_sched = train.get("arrivalTime") or ""
+    dest_eta = expected_eta(str(dest_sched), dynamic["final_predicted_delay"]) if dest_sched else None
+
+    return {
+        "train": _train_meta(train),
+        "live_status": {
+            "live_available": bool(live_status),
+            "current_station": live_status.get("LSTN"),
+            "current_station_name": live_status.get("LSTNN"),
+            "previous_station": live_status.get("NPSTN"),
+            "next_station": live_status.get("NSTN"),
+            "current_delay_minutes": snapshot.get("current_delay_minutes"),
+            "current_speed_kmh": snapshot.get("current_speed_kmh"),
+            "distance_covered_km": snapshot.get("distance_covered_km"),
+            "total_distance_km": snapshot.get("total_distance_km"),
+            "last_updated": live_status.get("LTIME") or snapshot.get("last_update"),
+            "journey_date_used": (live_payload or {}).get("journey_date_used") or journey_date,
+        },
+        "congestion": congestion,
+        "prediction": {
+            "ml_base_delay": dynamic["ml_predicted_delay"],
+            "live_adjusted_delay": dynamic["final_predicted_delay"],
+            "confidence": dynamic["confidence"],
+            "model_used": base.model_used,
+            "target_eta": dest_eta,
+            "target_station": f"{train.get('destinationName')} ({train.get('destinationCode')})",
+            "scheduled_arrival": str(dest_sched),
+            "breakdown": {
+                "ml_predicted_delay": dynamic["ml_predicted_delay"],
+                "current_live_delay": dynamic["current_live_delay"],
+                "progress_factor": dynamic["progress_factor"],
+                "speed_factor": dynamic["speed_factor"],
+                "congestion_factor": dynamic["congestion_factor"],
+            },
+            "sources": dynamic["sources"],
+        },
+        "current_station": station_eta["current_station"],
+        "upcoming_stations": station_eta["upcoming_stations"],
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+    }
 
 
 if __name__ == "__main__":

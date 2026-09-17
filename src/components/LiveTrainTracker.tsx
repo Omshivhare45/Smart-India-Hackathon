@@ -29,7 +29,7 @@ import {
 } from 'lucide-react';
 import { Train } from '../types/train';
 import { railAudio } from '../utils/audio';
-import { fetchLiveTrain, predictDelay, PredictionResponse } from '../lib/api';
+import { fetchLiveTrain, fetchFullPrediction, predictDelay, PredictionResponse, FullPredictionResponse } from '../lib/api';
 import { buildLiveTimeline, LiveStopView, LiveTimeline } from '../lib/liveTimeline';
 
 interface LiveTrainTrackerProps {
@@ -57,6 +57,14 @@ export const LiveTrainTracker: React.FC<LiveTrainTrackerProps> = ({ train, onOpe
  const [predictionLoading, setPredictionLoading] = useState<boolean>(false);
  const [predictionError, setPredictionError] = useState<string | null>(null);
  const [forecastAttempt, setForecastAttempt] = useState<number>(0);
+
+// Real-Time Dynamic ETA state (polls /api/trains/{no}/prediction every 30s)
+const [fullPred, setFullPred] = useState<FullPredictionResponse | null>(null);
+const [fullPredLoading, setFullPredLoading] = useState<boolean>(false);
+const [fullPredError, setFullPredError] = useState<string | null>(null);
+const [lastUpdatedAgo, setLastUpdatedAgo] = useState<number>(0);
+const fullPredLastUpdatedRef = React.useRef<number>(0);
+const hasFullPredRef = React.useRef<boolean>(false);
 
  // Demote the mock route to an explicit DEMO/SIMULATED timeline used ONLY
  // when the NTES live feed is unavailable.
@@ -168,6 +176,62 @@ export const LiveTrainTracker: React.FC<LiveTrainTrackerProps> = ({ train, onOpe
  return () => controller.abort();
  // eslint-disable-next-line react-hooks/exhaustive-deps
  }, [train.trainNumber, live, liveError, activeStationIdx, forecastAttempt]);
+
+ // Real-Time Dynamic ETA: polls every 30 s (starts when live status is known)
+ useEffect(() => {
+  const controller = new AbortController();
+  let intervalId: ReturnType<typeof setInterval> | null = null;
+  let mounted = true;
+
+  const fetchNow = async () => {
+  if (!mounted) return;
+  setFullPredLoading(!hasFullPredRef.current);
+  setFullPredError(null);
+  try {
+   const result = await fetchFullPrediction(
+   train.trainNumber,
+   {
+    journey_date: live?.journeyDate ?? undefined,
+   },
+   controller.signal,
+   );
+   if (!mounted || controller.signal.aborted) return;
+   setFullPred(result);
+   hasFullPredRef.current = true;
+   fullPredLastUpdatedRef.current = Date.now();
+   setLastUpdatedAgo(0);
+  } catch (err) {
+   if ((err as Error).name === 'AbortError' || !mounted) return;
+   setFullPred(null);
+   hasFullPredRef.current = false;
+   setFullPredError((err as Error).message || 'Dynamic ETA unavailable');
+  } finally {
+   if (mounted && !controller.signal.aborted) setFullPredLoading(false);
+  }
+  };
+
+  fetchNow();
+  intervalId = setInterval(fetchNow, 30_000);
+
+  return () => {
+  mounted = false;
+  if (intervalId) clearInterval(intervalId);
+  controller.abort();
+  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+ }, [train.trainNumber, live?.journeyDate]);
+
+ // "X seconds ago" ticker (1 s cadence; resets when fullPred updates)
+ useEffect(() => {
+  const id = setInterval(() => {
+  if (fullPredLastUpdatedRef.current > 0) {
+   setLastUpdatedAgo(
+   Math.floor((Date.now() - fullPredLastUpdatedRef.current) / 1000),
+   );
+  }
+  }, 1_000);
+  return () => clearInterval(id);
+ }, []);
 
  const currentIdx = displayStops.findIndex((s) => s.status === 'current');
  const hasCurrent = currentIdx >= 0;
@@ -555,7 +619,237 @@ const handleShareStatus = () => {
  )}
  </div>
 
- {/* 2. DESKTOP SPLIT COMMAND CENTER:
+ {/* 3. REAL-TIME DYNAMIC ETA (live NTES + trained ML hybrid, auto-refreshes) */}
+  <div id="dynamic-eta" className="bg-[#FFFFFF] rounded-none p-6 sm:p-8 shadow-soft border border-[#E2E8F0] relative overflow-hidden">
+  <div className="absolute top-0 left-0 right-0 h-1.5 bg-[#1D4ED8]" />
+
+  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
+  <div className="flex items-center gap-3">
+  <div className="w-11 h-11 rounded-none bg-[#13213E] text-white flex items-center justify-center shrink-0">
+  <Gauge className="w-6 h-6" />
+  </div>
+  <div>
+  <h3 className="text-base sm:text-lg font-black text-[#13213E] tracking-tight">
+  Real-Time Dynamic ETA
+  </h3>
+  <p className="text-xs text-[#64748B] font-medium">
+  Combines the trained ML engine with live NTES position &amp; delay • auto-refreshes every 30 s
+  </p>
+  </div>
+  </div>
+
+  <div className="flex items-center gap-2 self-start sm:self-auto">
+  {fullPred && !fullPredError && (
+  <span className="flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider px-2.5 py-1 rounded-none bg-emerald-500/10 text-emerald-700 border border-emerald-500/30">
+  <span className="w-1.5 h-1.5 rounded-none bg-emerald-500/100" />
+  LIVE • updated {lastUpdatedAgo}s ago
+  </span>
+  )}
+  {fullPredLoading && fullPred && (
+  <span className="flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider px-2.5 py-1 rounded-none bg-[#F1F5F9] text-[#64748B] border border-[#E2E8F0]">
+  <span className="w-3 h-3 rounded-none border-2 border-[#1D4ED8] border-t-transparent" />
+  Refreshing…
+  </span>
+  )}
+  </div>
+  </div>
+
+  {/* LOADING (first paint only) */}
+  {fullPredLoading && !fullPred && !fullPredError && (
+  <div className="flex items-center justify-center gap-3 py-6 border border-dashed border-[#E2E8F0] rounded-none bg-[#F1F5F9]">
+  <div className="w-5 h-5 rounded-none border-2 border-[#1D4ED8] border-t-transparent" />
+  <span className="text-sm font-semibold text-[#64748B]">Computing dynamic ETA…</span>
+  </div>
+  )}
+
+  {/* ERROR STATE — existing AI forecast still works */}
+  {!fullPredLoading && fullPredError && (
+  <div className="rounded-none bg-[#EEF4FC] border border-[#1D4ED8]/30 p-4 flex items-start gap-3">
+  <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+  <div className="flex-1">
+  <p className="text-sm font-bold text-[#13213E]">Dynamic ETA temporarily unavailable</p>
+  <p className="text-xs text-[#64748B] mt-0.5 break-words">{fullPredError}. The static AI forecast above still uses the trained model.</p>
+  </div>
+  </div>
+  )}
+
+  {/* SUCCESS */}
+  {!fullPredError && fullPred && (
+  <>
+  {/* Live status strip */}
+  <div className="flex flex-col md:flex-row md:items-center gap-2 pb-4 mb-4 border-b border-[#E2E8F0] text-xs">
+  <span
+  className={`inline-flex items-center gap-1.5 font-black uppercase tracking-wider text-[10px] px-2.5 py-1 rounded-none border ${
+  fullPred.live_status.live_available
+  ? 'bg-emerald-500/10 text-emerald-700 border-emerald-500/30'
+  : 'bg-amber-500/10 text-amber-700 border-amber-500/30'
+  }`}
+  >
+  {fullPred.live_status.live_available ? 'NTES Live Feed' : 'No Live Feed — ML estimate'}
+  </span>
+  <span className="text-[#64748B]">
+  Current:{' '}
+  <strong className="text-[#13213E]">
+  {fullPred.live_status.current_station_name || fullPred.live_status.current_station || '—'}
+  {fullPred.live_status.current_station ? ` (${fullPred.live_status.current_station})` : ''}
+  </strong>
+  </span>
+  <span className="text-[#64748B]">
+  Next:{' '}
+  <strong className="text-[#13213E]">{fullPred.live_status.next_station || '—'}</strong>
+  </span>
+  {fullPred.live_status.current_delay_minutes !== null && (
+  <span className="text-[#64748B]">
+  Now:{' '}
+  <strong className={fullPred.live_status.current_delay_minutes > 5 ? 'text-amber-600' : 'text-emerald-600'}>
+  {fullPred.live_status.current_delay_minutes} min late
+  </strong>
+  </span>
+  )}
+  <span className="md:ml-auto text-[10px] font-mono text-[#7C8DA8]">
+  Updated {fullPred.live_status.last_updated || '—'} • generated {fullPred.generated_at}
+  </span>
+  </div>
+
+  {/* Key stats */}
+  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+  <div className="rounded-none bg-[#F1F5F9] border border-[#E2E8F0] p-4">
+  <span className="block text-[10px] uppercase font-bold tracking-wider text-[#64748B]">
+  ML Base Delay
+  </span>
+  <div className="mt-1 font-mono text-xl sm:text-2xl font-black text-[#13213E]">
+  {fullPred.prediction.ml_base_delay}<span className="text-xs font-bold text-[#64748B] ml-0.5">min</span>
+  </div>
+  <span className="text-[11px] text-[#7C8DA8] font-medium mt-0.5 block">
+  22-feature trained model → next stop
+  </span>
+  </div>
+
+  <div className="rounded-none bg-[#F1F5F9] border border-[#E2E8F0] p-4">
+  <span className="block text-[10px] uppercase font-bold tracking-wider text-[#64748B]">
+  Live-Adjusted Delay
+  </span>
+  <div className={`mt-1 font-mono text-xl sm:text-2xl font-black ${fullPred.prediction.live_adjusted_delay > 5 ? 'text-amber-600' : 'text-emerald-600'}`}>
+  {fullPred.prediction.live_adjusted_delay}<span className="text-xs font-bold text-[#64748B] ml-0.5">min</span>
+  </div>
+  <span className="text-[11px] text-[#7C8DA8] font-medium mt-0.5 block">
+  After live delay, speed &amp; congestion blending
+  </span>
+  </div>
+
+  <div className="rounded-none bg-[#F1F5F9] border border-[#E2E8F0] p-4">
+  <span className="block text-[10px] uppercase font-bold tracking-wider text-[#64748B]">
+  Dest. ETA
+  </span>
+  <div className="mt-1 font-mono text-xl sm:text-2xl font-black text-[#1D4ED8]">
+  {fullPred.prediction.target_eta || '—'}
+  </div>
+  <span className="text-[11px] text-[#7C8DA8] font-medium mt-0.5 block break-words">
+  Sched. {fullPred.prediction.scheduled_arrival} at {fullPred.prediction.target_station}
+  </span>
+  </div>
+
+  <div className="rounded-none bg-[#F1F5F9] border border-[#E2E8F0] p-4">
+  <span className="block text-[10px] uppercase font-bold tracking-wider text-[#64748B]">
+  Congestion
+  </span>
+  <div className="mt-1 flex items-center gap-2">
+  <span
+  className={`font-mono text-xl sm:text-2xl font-black ${
+  fullPred.congestion.level === 'LOW'
+  ? 'text-emerald-600'
+  : fullPred.congestion.level === 'MEDIUM'
+  ? 'text-amber-600'
+  : fullPred.congestion.level === 'HIGH'
+  ? 'text-red-600'
+  : 'text-[#7C8DA8]'
+  }`}
+  >
+  {fullPred.congestion.level || 'UNKNOWN'}
+  </span>
+  {fullPred.congestion.score !== null && (
+  <span className="font-mono text-sm font-black text-[#64748B]">{fullPred.congestion.score}</span>
+  )}
+  </div>
+  <span className="text-[11px] text-[#7C8DA8] font-medium mt-0.5 block">
+  {fullPred.congestion.estimated ? 'Estimated — no onboard signals' : 'From live NTES factors'} • source: {fullPred.congestion.basis}
+  </span>
+  </div>
+  </div>
+
+  {/* Transparent factor breakdown */}
+  <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+  {[
+  { label: 'Progress', value: fullPred.prediction.breakdown.progress_factor, raw: fullPred.prediction.breakdown.progress_factor, fmt: (v: number | null) => `${Math.round((v ?? 0) * 100)}%`, src: fullPred.prediction.sources.progress },
+  { label: 'Speed factor', value: fullPred.prediction.breakdown.speed_factor, raw: fullPred.prediction.breakdown.speed_factor, fmt: (v: number | null) => `${(v ?? 1).toFixed(2)}×`, src: fullPred.prediction.sources.speed },
+  { label: 'Congestion factor', value: fullPred.prediction.breakdown.congestion_factor, raw: fullPred.prediction.breakdown.congestion_factor, fmt: (v: number | null) => `${(v ?? 1).toFixed(2)}×`, src: fullPred.prediction.sources.congestion },
+  { label: 'Live delay', value: fullPred.prediction.breakdown.current_live_delay, raw: fullPred.prediction.breakdown.current_live_delay, fmt: (v: number | null) => (v === null ? 'unavailable' : `${v} min`), src: fullPred.prediction.sources.live_delay },
+  ].map((f) => (
+  <div key={f.label} className="p-2.5 rounded-none bg-[#FFFFFF] border border-[#E2E8F0]">
+  <span className="block text-[9px] uppercase font-bold text-[#7C8DA8]">{f.label}</span>
+  <span className="font-mono font-black text-[#13213E]">{f.fmt(f.raw)}</span>
+  <span className="block text-[9px] font-mono text-[#7C8DA8] capitalize">source: {f.src}</span>
+  </div>
+  ))}
+  </div>
+
+  {/* Upcoming stations ETAs */}
+  <div className="mt-5">
+  <div className="flex items-center justify-between mb-2">
+  <h4 className="text-xs font-black uppercase tracking-wider text-[#13213E]">
+  Station-wise ETAs
+  </h4>
+  <span className="text-[10px] font-mono text-[#7C8DA8]">Model: {fullPred.prediction.model_used}</span>
+  </div>
+
+  {fullPred.upcoming_stations.length === 0 ? (
+  <p className="text-xs text-[#7C8DA8] border border-dashed border-[#E2E8F0] p-3 rounded-none bg-[#F1F5F9]">
+  Train is at (or past) the final stoppage — no upcoming stations.
+  </p>
+  ) : (
+  <div className="space-y-2">
+  {fullPred.upcoming_stations.map((s) => (
+  <div key={`${s.station_code}-${s.station_index}`} className="grid grid-cols-2 sm:grid-cols-5 gap-2 p-3 rounded-none bg-[#FFFFFF] border border-[#E2E8F0] text-xs">
+  <div className="col-span-2 sm:col-span-1">
+  <span className="block font-bold text-[#13213E]">{s.station_name}</span>
+  <span className="block text-[10px] font-mono text-[#7C8DA8]">{s.station_code} • {s.distance_remaining_km} km to go</span>
+  </div>
+  <div>
+  <span className="block text-[10px] uppercase font-bold text-[#64748B]">Sched.</span>
+  <span className="font-mono font-bold text-[#13213E]">{s.scheduled_arrival}</span>
+  </div>
+  <div>
+  <span className="block text-[10px] uppercase font-bold text-[#64748B]">Delay</span>
+  <span className={`font-mono font-bold ${s.predicted_delay_minutes > 5 ? 'text-amber-600' : 'text-emerald-600'}`}>
+  {s.predicted_delay_minutes} min
+  </span>
+  </div>
+  <div className="sm:col-span-1">
+  <span className="block text-[10px] uppercase font-bold text-[#64748B]">ETA</span>
+  <span className="font-mono font-black text-[#1D4ED8]">{s.predicted_eta || '—'}</span>
+  </div>
+  <div>
+  <span
+  className={`inline-block text-[9px] font-black uppercase tracking-wide px-2 py-0.5 rounded-none border ${
+  s.delay_source === 'live_corrected'
+  ? 'bg-[#EEF4FC] text-[#1D4ED8] border-[#1D4ED8]/25'
+  : 'bg-amber-500/10 text-amber-700 border-amber-500/30'
+  }`}
+  >
+  {s.delay_source === 'live_corrected' ? 'Live Corrected' : 'ML Projected'}
+  </span>
+  <span className="block text-[10px] font-mono text-[#7C8DA8] mt-0.5">conf {(s.confidence * 100).toFixed(0)}%</span>
+  </div>
+  </div>
+  ))}
+  </div>
+  )}
+  </div>
+  </>
+  )}
+  </div>
+
+  {/* 2. DESKTOP SPLIT COMMAND CENTER:
  Left (65%): Station-by-Station Timeline (Where is my train)
  Right (35%): Boarding Pass + Route Map + Coach Rake */}
  <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">

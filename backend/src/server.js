@@ -6,6 +6,7 @@ import { notFoundHandler, errorHandler } from './lib/errors.js';
 import healthRouter from './routes/health.js';
 import trainsRouter from './routes/trains.js';
 import stationsRouter from './routes/stations.js';
+import mapRouter from './routes/map.js';
 
 const app = express();
 
@@ -23,6 +24,7 @@ app.use(
 app.use('/api', healthRouter);
 app.use('/api', trainsRouter);
 app.use('/api', stationsRouter);
+app.use('/api', mapRouter);
 
 // Unknown /api/* paths
 app.use('/api', notFoundHandler);

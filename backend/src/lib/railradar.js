@@ -84,15 +84,38 @@ export async function getTrainDetails(trainNumber) {
   return railradarFetch(`/trains/${encodeURIComponent(trainNumber)}`);
 }
 
-export async function getLiveStatus(trainNumber, { date } = {}) {
+export async function getLiveStatus(trainNumber, { date, includeCoordinates, geometry, format } = {}) {
   return railradarFetch(`/trains/${encodeURIComponent(trainNumber)}/live`, {
-    params: { date, haltsOnly: 'true' },
+    params: {
+      date,
+      haltsOnly: 'true',
+      includeCoordinates: includeCoordinates === true ? 'true' : undefined,
+      geometry: geometry === true ? 'true' : undefined,
+      format: format === 'geojson' || format === 'polyline' || format === 'coordinates' ? format : undefined,
+    },
   });
 }
 
 export async function getTrainsBetween(from, to, { date, live } = {}) {
   return railradarFetch(`/trains/between/${encodeURIComponent(from)}/${encodeURIComponent(to)}`, {
     params: { date, live: live === true ? 'true' : 'false' },
+  });
+}
+
+// ------------------------------------------------------------------
+// Live railway map data
+// ------------------------------------------------------------------
+
+// Bulk snapshot of running trains with real coordinates (RailRadar "Live Map
+// Snapshot" feed). One request covers the whole network - never per-train.
+export async function getLiveMapSnapshot() {
+  return railradarFetch('/legacy/trains/live-map');
+}
+
+// High-resolution GeoJSON track geometry + station stops for a train route.
+export async function getTrainRouteGeometry(trainNumber, { format = 'geojson', stops = true } = {}) {
+  return railradarFetch(`/trains/${encodeURIComponent(trainNumber)}/route`, {
+    params: { format, stops: stops === true ? 'true' : 'false' },
   });
 }
 
