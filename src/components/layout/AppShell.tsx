@@ -2,11 +2,14 @@
 
 import React from 'react';
 import Image from 'next/image';
+import { MapPin } from 'lucide-react';
 import { cn } from '../../lib/cn';
 
 interface NavLink {
  key: string;
  label: string;
+ icon?: React.ComponentType<{ className?: string }>;
+ highlight?: boolean;
 }
 
 const NAV_LINKS: NavLink[] = [
@@ -14,6 +17,7 @@ const NAV_LINKS: NavLink[] = [
  { key: 'trains', label: 'Trains' },
  { key: 'station', label: 'Stations' },
  { key: 'live', label: 'Schedule' },
+ { key: 'map', label: 'Live Map', icon: MapPin, highlight: true },
 ];
 
 interface AppShellProps {
@@ -44,22 +48,46 @@ export const AppShell: React.FC<AppShellProps> = ({ active, onNavigate, children
  </button>
 
  {/* Center nav */}
- <nav className="hidden md:flex items-center gap-10">
+ <nav className="hidden md:flex items-center gap-8">
  {NAV_LINKS.map((link) => {
  const isActive = active === link.key;
+ const Icon = link.icon;
+ if (link.highlight) {
  return (
  <button
  key={`${link.key}-${link.label}`}
  onClick={() => onNavigate(link.key)}
  aria-current={isActive ? 'page' : undefined}
  className={cn(
-'relative text-[16px] font-semibold cursor-pointer',
-  isActive ? 'text-[#1D4ED8]' : 'text-[#4A5A79] hover:text-[#13213E]'
-  )}
-  >
-  {link.label}
-  {isActive && (
-  <span className="absolute -bottom-[28px] left-0 right-0 h-1 bg-[#1D4ED8]" />
+ 'relative flex items-center gap-1.5 px-4 py-2 rounded-none text-[14px] font-bold cursor-pointer border transition-all',
+ isActive
+ ? 'bg-[#1D4ED8] text-white border-[#1D4ED8]'
+ : 'bg-[#EEF4FC] text-[#1D4ED8] border-[#1D4ED8]/40 hover:bg-[#1D4ED8] hover:text-white hover:border-[#1D4ED8]'
+ )}
+ >
+ {Icon && <Icon className="w-3.5 h-3.5" />}
+ <span className="relative flex items-center gap-1">
+ {link.label}
+ <span className="ml-1 px-1.5 py-0.5 rounded-none bg-emerald-500 text-white text-[9px] font-mono font-black leading-none animate-pulse">
+ LIVE
+ </span>
+ </span>
+ </button>
+ );
+ }
+ return (
+ <button
+ key={`${link.key}-${link.label}`}
+ onClick={() => onNavigate(link.key)}
+ aria-current={isActive ? 'page' : undefined}
+ className={cn(
+ 'relative text-[16px] font-semibold cursor-pointer',
+ isActive ? 'text-[#1D4ED8]' : 'text-[#4A5A79] hover:text-[#13213E]'
+ )}
+ >
+ {link.label}
+ {isActive && (
+ <span className="absolute -bottom-[28px] left-0 right-0 h-1 bg-[#1D4ED8]" />
  )}
  </button>
  );

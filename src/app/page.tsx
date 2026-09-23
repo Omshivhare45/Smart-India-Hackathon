@@ -1,16 +1,17 @@
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
+import dynamic from 'next/dynamic';
 import {
- TrendingUp,
- Radio,
- ShieldCheck,
- Navigation,
- TimerOff,
- AlarmClock,
- Route,
- Radar,
- Sparkles,
+  TrendingUp,
+  Radio,
+  ShieldCheck,
+  Navigation,
+  TimerOff,
+  AlarmClock,
+  Route,
+  Radar,
+  Sparkles,
 } from 'lucide-react';
 import { AppShell } from '../components/layout/AppShell';
 import { VIEW_META } from '../components/layout/navConfig';
@@ -28,6 +29,21 @@ import { SettingsView } from '../components/views/SettingsView';
 import { AboutView } from '../components/views/AboutView';
 import { TRAINS, STATIONS } from '../data/trainData';
 import { Train } from '../types/train';
+
+const RailwayMap = dynamic(
+  () => import('../components/map/RailwayMap').then((mod) => mod.RailwayMap),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="w-full h-[700px] bg-[#0B0F19] flex items-center justify-center text-slate-400 font-mono text-xs">
+        <div className="flex items-center gap-2">
+          <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+          <span>Loading railway map...</span>
+        </div>
+      </div>
+    ),
+  },
+);
 
 type AppView = keyof typeof VIEW_META;
 
@@ -127,6 +143,18 @@ const handleSearchStations = () => {
  {activeView === 'dashboard' && (
  <div className="px-4 sm:px-6 lg:px-8 py-6 max-w-[1400px] mx-auto">
  <Dashboard onNavigate={(key) => setActiveView(key as AppView)} onTrackTrain={handleDashboardTrack} />
+ </div>
+ )}
+
+ {activeView === 'map' && (
+ <div className="relative w-full h-[calc(100vh-70px)] min-h-[640px] overflow-hidden">
+ <RailwayMap
+   initialTrainNumber={selectedLiveTrain?.trainNumber || null}
+   onSelectTrainExternal={(mapTrain) => {
+     const match = TRAINS.find((t) => t.trainNumber === mapTrain.train_number);
+     if (match) setSelectedLiveTrain(match);
+   }}
+ />
  </div>
  )}
 

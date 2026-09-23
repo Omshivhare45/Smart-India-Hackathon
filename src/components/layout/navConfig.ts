@@ -10,6 +10,7 @@ import {
   BarChart3,
   Settings,
   Info,
+  MapPin,
 } from 'lucide-react';
 
 export interface NavItem {
@@ -20,6 +21,7 @@ export interface NavItem {
 
 export const NAV_MAIN: NavItem[] = [
   { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { key: 'map', label: 'Live Railway Map', icon: MapPin },
   { key: 'trains', label: 'Train Search', icon: TrainFront },
   { key: 'live', label: 'Live Train Status', icon: Radio },
   { key: 'eta', label: 'ETA Prediction', icon: AlarmClock },
@@ -42,6 +44,7 @@ export interface ViewMeta {
 
 export const VIEW_META: Record<string, ViewMeta> = {
   dashboard: { title: 'Dashboard', breadcrumb: ['RailBuddy', 'Dashboard'] },
+  map: { title: 'Live Railway Map', breadcrumb: ['RailBuddy', 'Live Railway Map'] },
   trains: { title: 'Train Search', breadcrumb: ['RailBuddy', 'Train Search'] },
   live: { title: 'Live Train Status', breadcrumb: ['RailBuddy', 'Live Train Status'] },
   eta: { title: 'ETA Prediction', breadcrumb: ['RailBuddy', 'ETA Prediction'] },

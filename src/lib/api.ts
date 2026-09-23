@@ -339,3 +339,239 @@ export async function fetchFullPrediction(
   const data: unknown = await res.json();
   return data as FullPredictionResponse;
 }
+
+// =============================================================================
+// Live Railway Map & Telemetry API Client
+// =============================================================================
+
+export interface MapLiveTrain {
+  train_number: string;
+  train_name: string;
+  type: string;
+  current_lat: number;
+  current_lng: number;
+  bearing: number;
+  speed: number | null;
+  delay_minutes: number;
+  status: 'on_time' | 'moderate' | 'delayed';
+  current_station: string;
+  current_station_name: string;
+  next_station: string;
+  next_station_name: string;
+  next_lat: number | null;
+  next_lng: number | null;
+  curr_distance: number | null;
+  next_distance: number | null;
+  mins_since_dep: number | null;
+  departure_minutes: number | null;
+  next_arrival_minutes: number | null;
+  source: string;
+}
+
+export interface MapLiveTrainsResponse {
+  success: boolean;
+  trains: MapLiveTrain[];
+  count: number;
+  updated_at: string;
+  source: string;
+  is_demo: boolean;
+  live_available?: boolean;
+  warning?: string | null;
+}
+
+export interface RouteStationStop {
+  sequence: number;
+  code: string;
+  name: string;
+  lat: number;
+  lng: number;
+}
+
+export interface TrainRouteResponse {
+  success?: boolean;
+  train_number: string;
+  format: string;
+  coordinates: [number, number][]; // [lng, lat]
+  stops: RouteStationStop[];
+  source: string;
+}
+
+export interface MapStationUpcomingEta {
+  station_code: string;
+  station_name: string;
+  distance_remaining_km?: number;
+  scheduled_arrival: string;
+  live_estimated_arrival: string;
+  railbuddy_predicted_eta: string;
+  predicted_delay_minutes: number;
+  confidence: number;
+  delay_source: string;
+  lat?: number;
+  lng?: number;
+}
+
+export interface TrainMapEtaResponse {
+  success: boolean;
+  train: FullPredictionTrain;
+  live_status: FullPredictionLiveStatus;
+  congestion: CongestionInfo;
+  prediction: FullPrediction;
+  current_station: {
+    station_name: string | null;
+    station_code: string | null;
+    current_delay_minutes: number | null;
+    last_update: string | null;
+  };
+  upcoming_stations: MapStationUpcomingEta[];
+  generated_at: string;
+}
+
+export interface StationDetailResponse {
+  success: boolean;
+  station: {
+    code: string;
+    name: string;
+    lat: number;
+    lng: number;
+    zone: string;
+    platforms: number;
+    arriving_trains: MapLiveTrain[];
+    departing_trains: MapLiveTrain[];
+    total_active: number;
+    congestion: string;
+  };
+}
+
+export interface CongestionCorridor {
+  corridor_id: string;
+  name: string;
+  level: 'Normal' | 'Busy' | 'Congested' | 'Critical';
+  score: number;
+  active_trains_count: number;
+  avg_delay_minutes: number;
+  coordinates: [number, number][];
+  stations: string[];
+}
+
+export interface MapStation {
+  code: string;
+  name: string;
+  lat: number;
+  lng: number;
+  zone?: string;
+  platforms?: number;
+  rank?: string;
+}
+
+export async function fetchMapLiveTrains(
+  forceRefresh: boolean = false,
+  signal?: AbortSignal,
+): Promise<MapLiveTrainsResponse> {
+  const url = `${getApiBaseUrl()}/api/map/trains${forceRefresh ? '?force_refresh=true' : ''}`;
+  const res = await fetch(url, { signal });
+  if (!res.ok) {
+    let body: unknown = null;
+    try {
+      body = await res.json();
+    } catch {
+      /* ignore */
+    }
+    throw new Error(extractErrorDetail(body, res.status));
+  }
+  return (await res.json()) as MapLiveTrainsResponse;
+}
+
+export async function fetchMapStations(
+  signal?: AbortSignal,
+): Promise<{ success: boolean; stations: MapStation[] }> {
+  const url = `${getApiBaseUrl()}/api/map/stations`;
+  const res = await fetch(url, { signal });
+  if (!res.ok) {
+    let body: unknown = null;
+    try {
+      body = await res.json();
+    } catch {
+      /* ignore */
+    }
+    throw new Error(extractErrorDetail(body, res.status));
+  }
+  return (await res.json()) as { success: boolean; stations: MapStation[] };
+}
+
+export async function fetchTrainRoute(
+  trainNumber: string,
+  signal?: AbortSignal,
+): Promise<TrainRouteResponse> {
+  const url = `${getApiBaseUrl()}/api/live/train/${encodeURIComponent(trainNumber)}/route`;
+  const res = await fetch(url, { signal });
+  if (!res.ok) {
+    let body: unknown = null;
+    try {
+      body = await res.json();
+    } catch {
+      /* ignore */
+    }
+    throw new Error(extractErrorDetail(body, res.status));
+  }
+  return (await res.json()) as TrainRouteResponse;
+}
+
+export async function fetchTrainMapEta(
+  trainNumber: string,
+  query: { journey_date?: string; station_code?: string; current_speed_kmh?: number } = {},
+  signal?: AbortSignal,
+): Promise<TrainMapEtaResponse> {
+  const params = new URLSearchParams();
+  if (query.journey_date) params.set('journey_date', query.journey_date);
+  if (query.station_code) params.set('station_code', query.station_code);
+  if (query.current_speed_kmh !== undefined) params.set('current_speed_kmh', String(query.current_speed_kmh));
+
+  const qs = params.toString();
+  const url = `${getApiBaseUrl()}/api/live/train/${encodeURIComponent(trainNumber)}/eta${qs ? `?${qs}` : ''}`;
+  const res = await fetch(url, { signal });
+  if (!res.ok) {
+    let body: unknown = null;
+    try {
+      body = await res.json();
+    } catch {
+      /* ignore */
+    }
+    throw new Error(extractErrorDetail(body, res.status));
+  }
+  return (await res.json()) as TrainMapEtaResponse;
+}
+
+export async function fetchStationDetail(
+  stationCode: string,
+  signal?: AbortSignal,
+): Promise<StationDetailResponse> {
+  const url = `${getApiBaseUrl()}/api/stations/${encodeURIComponent(stationCode)}`;
+  const res = await fetch(url, { signal });
+  if (!res.ok) {
+    let body: unknown = null;
+    try {
+      body = await res.json();
+    } catch {
+      /* ignore */
+    }
+    throw new Error(extractErrorDetail(body, res.status));
+  }
+  return (await res.json()) as StationDetailResponse;
+}
+
+export async function fetchMapCongestion(
+  signal?: AbortSignal,
+): Promise<{ success: boolean; corridors: CongestionCorridor[] }> {
+  const url = `${getApiBaseUrl()}/api/map/congestion`;
+  const res = await fetch(url, { signal });
+  if (!res.ok) {
+    let body: unknown = null;
+    try {
+      body = await res.json();
+    } catch {
+      /* ignore */
+    }
+    throw new Error(extractErrorDetail(body, res.status));
+  }
+  return (await res.json()) as { success: boolean; corridors: CongestionCorridor[] };
+}

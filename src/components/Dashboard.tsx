@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import dynamic from 'next/dynamic';
 import {
  Search,
  AlarmClock,
@@ -18,12 +19,28 @@ import {
  Train as TrainIcon,
  Landmark,
  CloudSun,
+ MapPin,
 } from 'lucide-react';
 import { TRAINS, STATIONS } from '../data/trainData';
 import { Train } from '../types/train';
 import { fetchApiHealth } from '../lib/api';
 import DashboardCard from './layout/DashboardCard';
 import { cn } from '../lib/cn';
+
+const RailwayMap = dynamic(
+  () => import('./map/RailwayMap').then((mod) => mod.RailwayMap),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="w-full h-[520px] bg-[#0B0F19] flex items-center justify-center text-slate-400 font-mono text-xs">
+        <div className="flex items-center gap-2">
+          <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+          <span>Loading RailRadar Live Map Operations...</span>
+        </div>
+      </div>
+    ),
+  },
+);
 
 interface DashboardProps {
  onNavigate: (key: string) => void;
@@ -39,8 +56,9 @@ const MODEL_META = {
 };
 
 const QUICK_ACTIONS = [
- { key: 'trains', label: 'Search Train', desc: 'Find services between stations', icon: Search, accent: '#2563EB' },
- { key: 'eta', label: 'Predict ETA', desc: 'AI arrival forecast for next stop', icon: AlarmClock, accent: '#0EA5E9' },
+ { key: 'map', label: 'Live Railway Map', desc: 'Real-time network map & ML ETA', icon: MapPin, accent: '#2563EB' },
+ { key: 'trains', label: 'Search Train', desc: 'Find services between stations', icon: Search, accent: '#0EA5E9' },
+ { key: 'eta', label: 'Predict ETA', desc: 'AI arrival forecast for next stop', icon: AlarmClock, accent: '#10B981' },
  { key: 'delay', label: 'Check Delay', desc: 'Running-late probability score', icon: TimerOff, accent: '#D97706' },
  { key: 'route', label: 'Analyze Route', desc: 'Station-by-station intelligence', icon: Route, accent: '#6366F1' },
 ];
@@ -182,6 +200,43 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, onTrackTrain }
  })}
  </div>
  </section>
+
+  {/* LIVE RAILWAY MAP SECTION (MAJOR DASHBOARD COMPONENT) */}
+  <section className="space-y-4">
+    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#E2E8F0] pb-3">
+      <div className="flex items-center gap-2.5">
+        <span className="w-2.5 h-2.5 rounded-full bg-blue-600 animate-pulse" />
+        <div>
+          <h3 className="text-xl font-black text-[#13213E] tracking-tight">
+            RailRadar Live Railway Operations Map
+          </h3>
+          <p className="text-xs text-[#64748B]">
+            Real-time active train markers, directional headings, congestion corridors &amp; dynamic RailBuddy ML ETA forecast
+          </p>
+        </div>
+      </div>
+
+      <button
+        onClick={() => onNavigate('map')}
+        className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-none bg-[#2563EB] hover:bg-[#1D4ED8] text-white text-xs font-bold font-mono shadow-xs transition-colors shrink-0"
+      >
+        <MapPin className="w-3.5 h-3.5" />
+        <span>Expand Full Map</span>
+        <ArrowRight className="w-3.5 h-3.5 ml-0.5" />
+      </button>
+    </div>
+
+    <div className="w-full h-[540px] rounded-none border border-[#E2E8F0] shadow-soft overflow-hidden relative">
+      <RailwayMap
+        isDashboardWidget={true}
+        onExpandToFull={() => onNavigate('map')}
+        onSelectTrainExternal={(mapTrain) => {
+          const match = TRAINS.find((t) => t.trainNumber === mapTrain.train_number);
+          if (match) onTrackTrain(match);
+        }}
+      />
+    </div>
+  </section>
 
  {/* QUICK ACTIONS */}
  <section>

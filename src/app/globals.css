@@ -78,3 +78,112 @@ body {
   width: 5px;
   height: 5px;
 }
+
+/* =========================================================================
+   RAILBUDDY MAP — dark operations-surface design system
+   ========================================================================= */
+
+/* Shared tokens for the dark floating map chrome */
+.rb-surface {
+  background: rgba(13, 19, 32, 0.86);
+  backdrop-filter: blur(14px) saturate(1.15);
+  -webkit-backdrop-filter: blur(14px) saturate(1.15);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.03) inset,
+    0 12px 32px -12px rgba(0, 0, 0, 0.65),
+    0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+.rb-surface-strong {
+  background: rgba(11, 16, 27, 0.94);
+  backdrop-filter: blur(18px) saturate(1.1);
+  -webkit-backdrop-filter: blur(18px) saturate(1.1);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.04) inset,
+    0 18px 44px -16px rgba(0, 0, 0, 0.7),
+    0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.rb-control-btn {
+  @apply flex items-center justify-center w-9 h-9 text-slate-400 transition-all duration-150;
+}
+.rb-control-btn:hover {
+  @apply text-white bg-white/6;
+}
+.rb-control-btn:active {
+  transform: scale(0.94);
+}
+.rb-control-btn:disabled {
+  @apply text-slate-700 cursor-not-allowed hover:bg-transparent;
+}
+
+/* Micro-interaction keyframes (150–250ms, restrained) */
+@keyframes rb-fade-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes rb-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes rb-scale-in {
+  from { opacity: 0; transform: scale(0.97); }
+  to   { opacity: 1; transform: scale(1); }
+}
+@keyframes rb-slide-left {
+  from { opacity: 0; transform: translateX(10px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes rb-slide-up-right {
+  from { opacity: 0; transform: translateY(8px) translateX(8px); }
+  to   { opacity: 1; transform: translateY(0) translateX(0); }
+}
+@keyframes rb-breathe {
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 1; }
+}
+
+.rb-anim-fade-up   { animation: rb-fade-up 0.22s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.rb-anim-fade-in   { animation: rb-fade-in 0.2s ease both; }
+.rb-anim-scale-in  { animation: rb-scale-in 0.2s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.rb-anim-slide-left{ animation: rb-slide-left 0.2s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.rb-anim-panel     { animation: rb-slide-up-right 0.24s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+/* Scrollbars for dark floating surfaces */
+.rb-scroll { scrollbar-width: thin; scrollbar-color: rgba(100, 116, 139, 0.4) transparent; }
+.rb-scroll::-webkit-scrollbar { width: 5px; height: 5px; }
+.rb-scroll::-webkit-scrollbar-track { background: transparent; }
+.rb-scroll::-webkit-scrollbar-thumb { background: rgba(100, 116, 139, 0.4); border-radius: 9999px; }
+.rb-scroll::-webkit-scrollbar-thumb:hover { background: rgba(148, 163, 184, 0.6); }
+
+/* Small uppercase metric label */
+.rb-label {
+  @apply text-[9px] font-mono font-bold uppercase tracking-[0.14em] text-slate-500;
+}
+
+/* Reduces MapLibre popover weirdness — we ship our own popovers. */
+.maplibregl-popup-content { border-radius: 12px; }
+
+/* Map loading shimmer line */
+@keyframes rb-loading-shift {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.rb-loading-bar {
+  background: linear-gradient(90deg, rgba(148, 163, 184, 0.08) 25%, rgba(148, 163, 184, 0.24) 50%, rgba(148, 163, 184, 0.08) 75%);
+  background-size: 200% 100%;
+  animation: rb-loading-shift 1.6s ease-in-out infinite;
+}
+
+/* Custom reference-styled tooltip for map control buttons */
+.rb-tooltip {
+  @apply pointer-events-none absolute z-50 whitespace-nowrap rounded-md bg-[#0B101B]/95 border border-slate-700/60 px-2 py-1 text-[10px] font-mono text-slate-300 opacity-0 translate-x-1 transition-all duration-150;
+}
+
+/* Timeline connector */
+.rb-timeline-line {
+  width: 2px;
+  background: linear-gradient(to bottom, rgba(96, 165, 250, 0.7), rgba(71, 85, 105, 0.3));
+}
