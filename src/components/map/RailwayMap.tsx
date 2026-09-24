@@ -24,6 +24,7 @@ import { MapControls, MapStatusChip } from './MapControls';
 import { TrainSearchBar } from './TrainSearchBar';
 import { TrainEtaSidePanel } from './TrainEtaSidePanel';
 import { StationInfoModal } from './StationInfoModal';
+import { RAILBUDDY_MAP_STYLE } from './railbuddyMapStyle';
 import { RefreshCw, Navigation } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────
@@ -33,13 +34,14 @@ const INDIA_CENTER: [number, number] = [78.9629, 21.5937];
 const DEFAULT_ZOOM = 5.0;
 
 /**
- * OpenFreeMap "dark" style — free, key-less (no API key required), no rate
- * limits, and production-supported. Override per deployment with the
+ * Default basemap — the RailBuddy "Operations Dark" style (enriched dark map
+ * with country/state boundaries, water, major roads, city labels and a
+ * zoom-scaffolded railway hierarchy) built on the free, keyless, no-rate-limit
+ * OpenFreeMap vector tiles. Override per deployment with the
  * NEXT_PUBLIC_MAP_STYLE_URL env var (e.g. a custom self-hosted provider).
  */
-const OPENFREEMAP_DARK_STYLE = 'https://tiles.openfreemap.org/styles/dark';
-const MAP_STYLE_URL =
-  process.env.NEXT_PUBLIC_MAP_STYLE_URL?.trim() || OPENFREEMAP_DARK_STYLE;
+const MAP_STYLE: maplibregl.StyleSpecification | string =
+  process.env.NEXT_PUBLIC_MAP_STYLE_URL?.trim() || RAILBUDDY_MAP_STYLE;
 
 /** Restrained dark-theme delay palette (green → amber → orange → red). */
 const DELAY_TO_ICON = {
@@ -63,12 +65,34 @@ const TRAIN_ICON_SPECS: IconSpec[] = [
   { name: 'train-selected', color: '#4EA8FF', stroke: '#EFF6FF' },
 ];
 
-/** North-pointing teardrop used as the directional train marker. */
+/** Lighten a hex colour toward white (0 = unchanged, 1 = white). */
+function lighten(hex: string, amt: number): string {
+  const num = parseInt(hex.replace('#', ''), 16);
+  const r = (num >> 16) & 255;
+  const g = (num >> 8) & 255;
+  const b = num & 255;
+  const mix = (c: number) => Math.round(c + (255 - c) * amt);
+  const h = ((1 << 24) + (mix(r) << 16) + (mix(g) << 8) + mix(b)).toString(16).slice(1);
+  return `#${h}`;
+}
+
+/**
+ * North-pointing locomotive teardrop used as the directional train marker.
+ * A warm nose highlight + headlight dot makes it read as a moving train
+ * nose (rotated by true bearing) rather than a generic pin.
+ */
 function trainIconSvg(color: string, stroke: string): string {
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">` +
+    `<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1">` +
+    `<stop offset="0" stop-color="${lighten(color, 0.42)}"/>` +
+    `<stop offset="0.5" stop-color="${color}"/>` +
+    `<stop offset="1" stop-color="${lighten(color, -0.18)}"/>` +
+    `</linearGradient></defs>` +
     `<path d="M8 1C9 3 15.4 9.5 15.4 11.4a7.4 7.4 0 0 1-14.8 0C0.6 9.5 7 3 8 1Z" ` +
-    `fill="${color}" stroke="${stroke}" stroke-width="1.2" stroke-linejoin="round"/></svg>`
+    `fill="url(#g)" stroke="${stroke}" stroke-width="1.1" stroke-linejoin="round"/>` +
+    `<circle cx="8" cy="2.9" r="0.75" fill="#F4F7FB" opacity="0.9"/>` +
+    `</svg>`
   );
 }
 
@@ -187,7 +211,7 @@ const MapLoadingPhase: React.FC = () => {
   }, []);
 
   const labels = [
-    'Loading railway network…',
+    'Loading railway map…',
     'Connecting to live telemetry…',
     'Positioning live trains…',
   ];
@@ -319,7 +343,7 @@ export const RailwayMap: React.FC<RailwayMapProps> = ({
 
       const map = new maplibregl.Map({
         container: mapContainerRef.current,
-        style: MAP_STYLE_URL,
+        style: MAP_STYLE,
         center: INDIA_CENTER,
         zoom: isDashboardWidget ? 4.2 : DEFAULT_ZOOM,
         minZoom: 3.5,
@@ -345,73 +369,6 @@ export const RailwayMap: React.FC<RailwayMapProps> = ({
       map.on('load', () => {
         clearTimeout(initTimeout);
         setMapInitError(null);
-        const hasBasemapVector = typeof map.getSource('openmaptiles') !== 'undefined';
-
-        // ── RAILWAY NETWORK (national → regional) from basemap vector ──
-        if (hasBasemapVector) {
-          // National spine — subtle casing for separation from basemap
-          map.addLayer({
-            id: 'rail-network-casing',
-            type: 'line',
-            source: 'openmaptiles',
-            'source-layer': 'transportation',
-            minzoom: 3,
-            maxzoom: 13.4,
-            filter: [
-              'all',
-              ['==', ['get', 'class'], 'rail'],
-              ['!', ['has', 'service']],
-            ],
-            layout: { 'line-join': 'round', 'line-cap': 'round' },
-            paint: {
-              'line-color': '#0C1524',
-              'line-width': ['interpolate', ['linear'], ['zoom'], 3, 2, 6, 2.6, 9, 3.2, 12, 4],
-              'line-opacity': 0.85,
-            },
-          });
-
-          // National network — subtle, subordinate to map content
-          map.addLayer({
-            id: 'rail-network',
-            type: 'line',
-            source: 'openmaptiles',
-            'source-layer': 'transportation',
-            minzoom: 3,
-            maxzoom: 13.4,
-            filter: [
-              'all',
-              ['==', ['get', 'class'], 'rail'],
-              ['!', ['has', 'service']],
-            ],
-            layout: { 'line-join': 'round', 'line-cap': 'round' },
-            paint: {
-              'line-color': '#43566C',
-              'line-width': ['interpolate', ['linear'], ['zoom'], 3, 0.7, 6, 1, 9, 1.4, 12, 1.8],
-              'line-opacity': ['interpolate', ['linear'], ['zoom'], 3, 0.32, 7, 0.4, 11, 0.5, 13.4, 0.55],
-            },
-          });
-
-          // Regional network — slightly stronger as you zoom in
-          map.addLayer({
-            id: 'rail-network-region',
-            type: 'line',
-            source: 'openmaptiles',
-            'source-layer': 'transportation',
-            minzoom: 7.5,
-            maxzoom: 13.4,
-            filter: [
-              'all',
-              ['==', ['get', 'class'], 'rail'],
-              ['!', ['has', 'service']],
-            ],
-            layout: { 'line-join': 'round', 'line-cap': 'round' },
-            paint: {
-              'line-color': '#5A7089',
-              'line-width': ['interpolate', ['linear'], ['zoom'], 7.5, 1.1, 10, 1.7, 12, 2.4],
-              'line-opacity': ['interpolate', ['linear'], ['zoom'], 7.5, 0.42, 11, 0.55, 13.4, 0.6],
-            },
-          });
-        }
 
         // ── STATIONS SOURCE (real CORE_STATIONS catalogue) ──────────
         map.addSource('stations-source', {
@@ -431,10 +388,10 @@ export const RailwayMap: React.FC<RailwayMapProps> = ({
               ['interpolate', ['linear'], ['zoom'], 3, 2.2, 8, 3.2, 14, 3.8],
               ['interpolate', ['linear'], ['zoom'], 3, 1.5, 8, 2, 14, 2.4],
             ],
-            'circle-color': ['case', ['==', ['get', 'hub'], 1], '#94A3B8', '#5B6B7D'],
-            'circle-opacity': ['case', ['==', ['get', 'hub'], 1], 0.85, 0.5],
+            'circle-color': ['case', ['==', ['get', 'hub'], 1], '#AEB9C5', '#64748B'],
+            'circle-opacity': ['case', ['==', ['get', 'hub'], 1], 0.9, 0.55],
             'circle-stroke-width': ['case', ['==', ['get', 'hub'], 1], 0.7, 0],
-            'circle-stroke-color': '#0B0F19',
+            'circle-stroke-color': '#0A0F16',
             'circle-stroke-opacity': 0.9,
           },
         });
@@ -484,12 +441,15 @@ export const RailwayMap: React.FC<RailwayMapProps> = ({
         });
 
         // ── TRAINS SOURCE — clustered GeoJSON ─────────────────────
+        // A slightly larger clusterMaxZoom keeps clusters intact until deep
+        // regional zoom; a tighter radius makes them dissolve gradually into
+        // individual markers as you zoom in (no mid-zoom "explosion").
         map.addSource('trains-source', {
           type: 'geojson',
           data: EMPTY_FC,
           cluster: true,
-          clusterMaxZoom: 8,
-          clusterRadius: 55,
+          clusterMaxZoom: 12,
+          clusterRadius: 50,
           clusterProperties: {
             // Aggregate worst delay + whether a selection is inside, so
             // clusters can be colored by delay and dimmed when a train
@@ -499,59 +459,89 @@ export const RailwayMap: React.FC<RailwayMapProps> = ({
           },
         });
 
-        // ── CLUSTER CIRCLES — compact, subordinate to the map ─────
+        // ── CLUSTER SHADOW — soft dark footprint, not a glow ─────
+        map.addLayer({
+          id: 'clusters-shadow',
+          type: 'circle',
+          source: 'trains-source',
+          filter: ['has', 'point_count'],
+          paint: {
+            'circle-color': '#000000',
+            'circle-radius': [
+              'step',
+              ['get', 'point_count'],
+              9,
+              10, 11,
+              50, 14,
+              200, 17,
+            ],
+            'circle-blur': 1.1,
+            'circle-opacity': ['case', ['>', ['get', 'sel'], 0], 0.22, 0.34],
+          },
+        });
+
+        // ── CLUSTER CHIPS — compact, flat, neutral wafer ──────────
+        // Small radius that grows only gradually with count; delay is
+        // communicated through a thin muted border, never a loud fill.
         map.addLayer({
           id: 'clusters',
           type: 'circle',
           source: 'trains-source',
           filter: ['has', 'point_count'],
           paint: {
-            'circle-color': [
-              'step',
-              ['get', 'max_delay'],
-              DELAY_TO_ICON[0], // on time
-              5,  DELAY_TO_ICON[1], // slight
-              20, DELAY_TO_ICON[2], // moderate
-              40, DELAY_TO_ICON[3], // severe
-            ],
+            'circle-color': '#1B2531',
             'circle-radius': [
               'step',
               ['get', 'point_count'],
-              12,
-              10,  15,
-              50,  18,
-              200, 22,
+              7,
+              10, 9,
+              50, 12,
+              200, 15,
             ],
-            'circle-opacity': ['case', ['>', ['get', 'sel'], 0], 0.35, 0.85],
-            'circle-stroke-width': 1.5,
-            'circle-stroke-color': '#0B0F19',
-            'circle-stroke-opacity': 0.75,
-          },
-        });
-
-        // ── CLUSTER MINI ICON + COUNT ─────────────────────────────
-        map.addLayer({
-          id: 'cluster-icon',
-          type: 'symbol',
-          source: 'trains-source',
-          filter: ['has', 'point_count'],
-          layout: {
-            'icon-image': [
+            'circle-opacity': ['case', ['>', ['get', 'sel'], 0], 0.5, 0.94],
+            'circle-blur': 0,
+            // Thin, desaturated delay border — on-time green, slight amber,
+            // moderate orange, severe red.
+            'circle-stroke-width': [
+              'interpolate', ['linear'], ['zoom'],
+              3, 1.1,
+              12, 1.5,
+            ],
+            'circle-stroke-color': [
               'step',
               ['get', 'max_delay'],
-              'train-g',
-              5, 'train-a',
-              20, 'train-o',
-              40, 'train-r',
+              '#4F967F', // 0 - on time (muted rail-green)
+              5,  '#C08A3E', // slight (desaturated amber)
+              20, '#B97A3E', // moderate (desaturated orange)
+              40, '#B85F5F', // severe (desaturated red)
             ],
-            'icon-size': 0.34,
-            'icon-anchor': 'center',
-            'icon-offset': [0, -15],
-            'icon-allow-overlap': true,
-            'icon-ignore-placement': true,
+            'circle-stroke-opacity': ['case', ['>', ['get', 'sel'], 0], 0.4, 0.85],
           },
         });
 
+        // Highlight ring — a cluster that contains the selected train
+        map.addLayer({
+          id: 'clusters-selected-ring',
+          type: 'circle',
+          source: 'trains-source',
+          filter: ['all', ['has', 'point_count'], ['>', ['get', 'sel'], 0]],
+          paint: {
+            'circle-radius': [
+              'step',
+              ['get', 'point_count'],
+              9,
+              10, 11,
+              50, 14,
+              200, 17,
+            ],
+            'circle-color': 'rgba(0,0,0,0)',
+            'circle-stroke-width': 1.4,
+            'circle-stroke-color': '#5BB8FF',
+            'circle-stroke-opacity': 0.85,
+          },
+        });
+
+        // ── CLUSTER COUNT — compact, portioned, above the wafer ─────
         map.addLayer({
           id: 'cluster-count',
           type: 'symbol',
@@ -560,14 +550,14 @@ export const RailwayMap: React.FC<RailwayMapProps> = ({
           layout: {
             'text-field': ['get', 'point_count_abbreviated'],
             'text-font': ['Noto Sans Bold', 'Open Sans Bold', 'Arial Unicode MS Bold'],
-            'text-size': 10,
+            'text-size': ['interpolate', ['linear'], ['zoom'], 3, 8.5, 10, 10.5],
             'text-allow-overlap': true,
             'text-ignore-placement': true,
           },
           paint: {
-            'text-color': '#ffffff',
-            'text-halo-color': 'rgba(0,0,0,0.45)',
-            'text-halo-width': 0.6,
+            'text-color': '#EAF2FA',
+            'text-halo-color': '#141A22',
+            'text-halo-width': 1.4,
           },
         });
 
@@ -601,16 +591,16 @@ export const RailwayMap: React.FC<RailwayMapProps> = ({
               'icon-anchor': 'center',
               'icon-size': [
                 'interpolate', ['linear'], ['zoom'],
-                5, 0.38,
-                8, 0.46,
-                12, 0.54,
-                14, 0.6,
+                5, 0.42,
+                8, 0.5,
+                12, 0.58,
+                14, 0.64,
               ],
               'icon-allow-overlap': true,
               'icon-ignore-placement': true,
             },
             paint: {
-              'icon-opacity': ['case', ['==', ['get', 'dimmed'], 1], 0.24, 0.9],
+              'icon-opacity': ['case', ['==', ['get', 'dimmed'], 1], 0.26, 0.96],
             },
           });
         } else {
@@ -626,16 +616,9 @@ export const RailwayMap: React.FC<RailwayMapProps> = ({
             ],
             minzoom: 4.5,
             paint: {
-              'circle-color': [
-                'step',
-                ['get', 'delay_minutes'],
-                DELAY_TO_ICON[0],
-                5,  DELAY_TO_ICON[1],
-                20, DELAY_TO_ICON[2],
-                40, DELAY_TO_ICON[3],
-              ],
+              'circle-color': ['step', ['get', 'delay_minutes'], DELAY_TO_ICON[0], 5, DELAY_TO_ICON[1], 20, DELAY_TO_ICON[2], 40, DELAY_TO_ICON[3]],
               'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 2.6, 14, 3.8],
-              'circle-opacity': ['case', ['==', ['get', 'dimmed'], 1], 0.24, 0.85],
+              'circle-opacity': ['case', ['==', ['get', 'dimmed'], 1], 0.28, 0.85],
               'circle-stroke-width': 1,
               'circle-stroke-color': '#0B0F19',
             },
@@ -692,11 +675,11 @@ export const RailwayMap: React.FC<RailwayMapProps> = ({
           paint: {
             'circle-radius': [
               'interpolate', ['linear'], ['zoom'],
-              5, 13,
-              12, 19,
+              5, 14,
+              12, 20,
             ],
             'circle-color': '#38BDF8',
-            'circle-opacity': 0.07,
+            'circle-opacity': 0.14,
             'circle-stroke-width': 0,
             'circle-blur': 1,
           },
@@ -710,12 +693,12 @@ export const RailwayMap: React.FC<RailwayMapProps> = ({
           paint: {
             'circle-radius': [
               'interpolate', ['linear'], ['zoom'],
-              5, 9,
-              12, 13,
+              5, 10,
+              12, 14,
             ],
-            'circle-color': '#12233B',
-            'circle-opacity': 0.85,
-            'circle-stroke-width': 2,
+            'circle-color': '#0A1826',
+            'circle-opacity': 0.9,
+            'circle-stroke-width': 2.3,
             'circle-stroke-color': '#38BDF8',
             'circle-stroke-opacity': 0.95,
           },
@@ -733,8 +716,8 @@ export const RailwayMap: React.FC<RailwayMapProps> = ({
             'icon-anchor': 'center',
             'icon-size': [
               'interpolate', ['linear'], ['zoom'],
-              4, 0.7,
-              12, 0.9,
+              4, 0.85,
+              12, 1.0,
             ],
             'icon-allow-overlap': true,
             'icon-ignore-placement': true,
@@ -749,7 +732,7 @@ export const RailwayMap: React.FC<RailwayMapProps> = ({
           layout: {
             'text-field': ['concat', ['get', 'train_number'], '\n', ['get', 'train_name_short']],
             'text-font': ['Noto Sans Bold', 'Open Sans Bold', 'Arial Unicode MS Bold'],
-            'text-size': 11,
+            'text-size': 11.5,
             'text-offset': [0, -2.4],
             'text-anchor': 'bottom',
             'text-line-height': 1.3,
@@ -758,8 +741,8 @@ export const RailwayMap: React.FC<RailwayMapProps> = ({
             'text-max-width': 14,
           },
           paint: {
-            'text-color': '#BFDBFE',
-            'text-halo-color': '#0B0F19',
+            'text-color': '#D8EEFF',
+            'text-halo-color': '#0A0F16',
             'text-halo-width': 2,
           },
         });
@@ -775,28 +758,28 @@ export const RailwayMap: React.FC<RailwayMapProps> = ({
           data: EMPTY_FC,
         });
 
-        // Completed — muted dashed
+        // Completed — muted dashed trace
         map.addLayer({
           id: 'route-completed',
           type: 'line',
           source: 'route-completed-source',
           layout: { 'line-join': 'round', 'line-cap': 'round' },
           paint: {
-            'line-color': '#64748B',
-            'line-width': 1.8,
-            'line-opacity': 0.6,
+            'line-color': '#55637A',
+            'line-width': 1.6,
+            'line-opacity': 0.5,
             'line-dasharray': [2, 3],
           },
         });
 
-        // Remaining route — casing then soft glow then crisp core
+        // Remaining route — casing then soft glow then crisp accent core
         map.addLayer({
           id: 'route-remaining-casing',
           type: 'line',
           source: 'route-remaining-source',
           layout: { 'line-join': 'round', 'line-cap': 'round' },
           paint: {
-            'line-color': '#0B0F19',
+            'line-color': '#0A0F16',
             'line-width': 5.5,
             'line-opacity': 0.85,
             'line-blur': 0.6,
@@ -811,7 +794,7 @@ export const RailwayMap: React.FC<RailwayMapProps> = ({
           paint: {
             'line-color': '#38BDF8',
             'line-width': 6,
-            'line-opacity': 0.12,
+            'line-opacity': 0.1,
             'line-blur': 4,
           },
         });
@@ -822,7 +805,7 @@ export const RailwayMap: React.FC<RailwayMapProps> = ({
           source: 'route-remaining-source',
           layout: { 'line-join': 'round', 'line-cap': 'round' },
           paint: {
-            'line-color': '#60A5FA',
+            'line-color': '#38BDF8',
             'line-width': 2.4,
             'line-opacity': 0.95,
           },
@@ -845,9 +828,9 @@ export const RailwayMap: React.FC<RailwayMapProps> = ({
               4, 2.2,
               10, 3.6,
             ],
-            'circle-color': '#0F172A',
+            'circle-color': '#0A1018',
             'circle-stroke-width': 1.5,
-            'circle-stroke-color': '#60A5FA',
+            'circle-stroke-color': '#38BDF8',
             'circle-opacity': 0.9,
           },
         });
@@ -1317,13 +1300,17 @@ export const RailwayMap: React.FC<RailwayMapProps> = ({
       catch { /* layer not yet added */ }
     };
 
-    safeSet('rail-network-casing',   vis(showRailwayNetwork));
-    safeSet('rail-network',          vis(showRailwayNetwork));
-    safeSet('rail-network-region',   vis(showRailwayNetwork));
-    safeSet('clusters',              vis(showTrains));
-    safeSet('cluster-count',         vis(showTrains));
-    safeSet('cluster-icon',          vis(showTrains));
-    safeSet('unclustered-trains',    vis(showTrains));
+safeSet('rail-casing',          vis(showRailwayNetwork));
+    safeSet('rail-network',         vis(showRailwayNetwork));
+    safeSet('rail-network-region',  vis(showRailwayNetwork));
+    safeSet('rail-network-detail',  vis(showRailwayNetwork));
+    safeSet('rail-service-casing',  vis(showRailwayNetwork));
+    safeSet('rail-service',         vis(showRailwayNetwork));
+    safeSet('clusters',             vis(showTrains));
+    safeSet('clusters-shadow',      vis(showTrains));
+    safeSet('clusters-selected-ring', vis(showTrains));
+    safeSet('cluster-count',        vis(showTrains));
+    safeSet('unclustered-trains',   vis(showTrains));
     safeSet('train-hover-label',     vis(showTrains));
     safeSet('selected-train-glow',   vis(showTrains));
     safeSet('selected-train-ring',   vis(showTrains));
@@ -1420,13 +1407,13 @@ export const RailwayMap: React.FC<RailwayMapProps> = ({
   // Render
   // ─────────────────────────────────────────────────────────────
   return (
-    <div className={`relative w-full h-full min-h-[520px] overflow-hidden bg-[#0b0b0c] ${className}`}>
+    <div className={`relative w-full h-full min-h-[520px] overflow-hidden bg-[#161D26] ${className}`}>
       {/* MapLibre Canvas */}
       <div ref={mapContainerRef} className="absolute inset-0 w-full h-full" />
 
       {/* Map loading state — subtle, on-the-map, no generic spinner */}
       {!mapReady && !mapInitError && (
-        <div className="absolute inset-0 bg-[#0b0b0c] z-10 pointer-events-none">
+        <div className="absolute inset-0 bg-[#161D26] z-10 pointer-events-none">
           <div className="absolute bottom-10 left-1/2 -translate-x-1/2">
             <MapLoadingPhase />
           </div>
@@ -1435,7 +1422,7 @@ export const RailwayMap: React.FC<RailwayMapProps> = ({
 
       {/* Map init failure — proper error state with retry */}
       {mapInitError && (
-        <div className="absolute inset-0 bg-[#0b0b0c] z-20 flex flex-col items-center justify-center gap-3 px-6">
+        <div className="absolute inset-0 bg-[#161D26] z-20 flex flex-col items-center justify-center gap-3 px-6">
           <div className="text-[13px] font-semibold text-slate-200">Map failed to load</div>
           <p className="text-[10.5px] font-mono text-slate-500 max-w-[52ch] text-center break-words leading-relaxed">
             {mapInitError}

@@ -309,6 +309,84 @@ class RailwayMapService:
     def is_upstream_configured(self) -> bool:
         return bool(self.api_key and len(self.api_key.strip()) > 5)
 
+    # ------------------------------------------------------------------
+    # Route geometry extraction helpers
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _coords_valid(coords: Any) -> bool:
+        """A usable polyline is >=2 pairs of numeric [lng, lat] values."""
+        return (
+            isinstance(coords, list)
+            and len(coords) >= 2
+            and all(
+                isinstance(c, (list, tuple))
+                and len(c) >= 2
+                and isinstance(c[0], (int, float))
+                and isinstance(c[1], (int, float))
+                for c in coords[:10]
+            )
+        )
+
+    @staticmethod
+    def _coords_from_geojson(geojson: Any) -> List[List[float]]:
+        """Pull [lng, lat] vertex pairs out of a GeoJSON payload.
+
+        The upstream returns the track polyline under the ``geojson`` key as
+        a Feature whose geometry is a LineString (or MultiLineString); the
+        payload may also be a bare geometry or a FeatureCollection.
+        """
+        if not isinstance(geojson, dict):
+            return []
+        geom = None
+        if geojson.get("type") == "Feature":
+            geom = geojson.get("geometry")
+        elif geojson.get("type") == "FeatureCollection":
+            for f in geojson.get("features") or []:
+                g = f.get("geometry") if isinstance(f, dict) else None
+                if g and g.get("type") in ("LineString", "MultiLineString"):
+                    geom = g
+                    break
+        elif geojson.get("type") in ("LineString", "MultiLineString"):
+            geom = geojson
+        if not isinstance(geom, dict):
+            return []
+        coords = geom.get("coordinates") or []
+        if geom.get("type") == "MultiLineString":
+            out: List[List[float]] = []
+            for part in coords:
+                if isinstance(part, list):
+                    out.extend(part)
+            return out
+        return coords if isinstance(coords, list) else []
+
+    @staticmethod
+    def _coords_from_stops(stops: Any) -> List[List[float]]:
+        """Derive a polyline from real stop coordinates only — never fabricated."""
+        coords: List[List[float]] = []
+        if not isinstance(stops, list):
+            return coords
+        for s in stops:
+            if isinstance(s, dict):
+                lng, lat = s.get("lng"), s.get("lat")
+                if isinstance(lng, (int, float)) and isinstance(lat, (int, float)):
+                    coords.append([float(lng), float(lat)])
+        return coords
+
+    def _extract_route_coordinates(self, data: Dict[str, Any]) -> List[List[float]]:
+        """Best-effort extraction of route geometry from a RailRadar payload.
+
+        Preferred order: explicit ``coordinates`` → ``geojson`` geometry →
+        real stop positions. Returns an empty list when nothing usable exists
+        so the caller can fail honestly instead of faking a corridor.
+        """
+        coords = data.get("coordinates") or []
+        if self._coords_valid(coords):
+            return coords
+        coords = self._coords_from_geojson(data.get("geojson"))
+        if self._coords_valid(coords):
+            return coords
+        return self._coords_from_stops(data.get("stops"))
+
     def _normalize_train_record(self, raw: Dict[str, Any], source: str) -> Optional[Dict[str, Any]]:
         """Normalize train telemetry and compute bearing, distance, and status."""
         try:
@@ -470,7 +548,11 @@ class RailwayMapService:
     def get_train_route(self, train_number: str) -> Dict[str, Any]:
         """
         Fetch GeoJSON route geometry and station stops for a train.
-        Caches for 24 hours.
+        Caches real responses for 24 hours.
+
+        Honesty policy: realtime modes never fabricate a route geometry. If no
+        usable geometry can be obtained, an empty-route response is returned
+        so the UI can render "route unavailable" instead of a made-up line.
         """
         clean_no = str(train_number).strip()
         with self._route_cache_lock:
@@ -493,12 +575,13 @@ class RailwayMapService:
                         out = {
                             "train_number": clean_no,
                             "format": "geojson",
-                            "coordinates": data.get("coordinates") or [],
+                            "coordinates": self._extract_route_coordinates(data),
                             "stops": data.get("stops") or [],
                             "source": "railradar",
                         }
-                        with self._route_cache_lock:
-                            self._route_cache[clean_no] = out
+                        if out["coordinates"] or out["stops"]:
+                            with self._route_cache_lock:
+                                self._route_cache[clean_no] = out
                         return out
             except Exception:
                 pass
@@ -514,45 +597,56 @@ class RailwayMapService:
                         out = {
                             "train_number": clean_no,
                             "format": "geojson",
-                            "coordinates": data.get("coordinates") or [],
+                            "coordinates": self._extract_route_coordinates(data),
                             "stops": data.get("stops") or [],
                             "source": "railradar_proxy",
                         }
-                        with self._route_cache_lock:
-                            self._route_cache[clean_no] = out
+                        if out["coordinates"] or out["stops"]:
+                            with self._route_cache_lock:
+                                self._route_cache[clean_no] = out
                         return out
             except Exception:
                 pass
 
-        # 3. Catalog / Demo Route Generator fallback
-        stops = []
-        coordinates = []
-        # Check if train is in trainData catalog or CORE_STATIONS
-        # Default fallback route between Delhi and Varanasi / destination
-        sample_sequence = ["NDLS", "CNB", "PRYJ", "BSB"] if clean_no == "22436" else ["NDLS", "AGC", "GWL", "BPL", "RKMP"]
-        for idx, code in enumerate(sample_sequence, start=1):
-            st = CORE_STATIONS.get(code)
-            if st:
-                lat, lng = st["lat"], st["lng"]
-                stops.append({
-                    "sequence": idx,
-                    "code": code,
-                    "name": st["name"],
-                    "lat": lat,
-                    "lng": lng,
-                })
-                coordinates.append([lng, lat])
+        # 3. DEMO-only curated fallback — never runs in realtime modes, so
+        #    a live map can't be polluted with a fabricated corridor.
+        if self.data_mode == "DEMO":
+            stops = []
+            coordinates = []
+            sample_sequence = ["NDLS", "CNB", "PRYJ", "BSB"] if clean_no == "22436" else ["NDLS", "AGC", "GWL", "BPL", "RKMP"]
+            for idx, code in enumerate(sample_sequence, start=1):
+                st = CORE_STATIONS.get(code)
+                if st:
+                    lat, lng = st["lat"], st["lng"]
+                    stops.append({
+                        "sequence": idx,
+                        "code": code,
+                        "name": st["name"],
+                        "lat": lat,
+                        "lng": lng,
+                    })
+                    coordinates.append([lng, lat])
 
-        out = {
+            out = {
+                "train_number": clean_no,
+                "format": "geojson",
+                "coordinates": coordinates,
+                "stops": stops,
+                "source": "demo_catalog",
+            }
+            with self._route_cache_lock:
+                self._route_cache[clean_no] = out
+            return out
+
+        # 4. Real sources failed — honest empty route (nothing fabricated,
+        #    and not cached so a later attempt can still succeed).
+        return {
             "train_number": clean_no,
             "format": "geojson",
-            "coordinates": coordinates,
-            "stops": stops,
-            "source": "demo_catalog",
+            "coordinates": [],
+            "stops": [],
+            "source": "unavailable",
         }
-        with self._route_cache_lock:
-            self._route_cache[clean_no] = out
-        return out
 
     def get_station_info(self, station_code: str) -> Dict[str, Any]:
         """Return station telemetry, coordinates, and currently active trains."""

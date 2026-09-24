@@ -247,16 +247,16 @@ export const TrainEtaSidePanel: React.FC<TrainEtaSidePanelProps> = ({
             <div className="px-4 pb-3">
               <div className="flex items-center justify-between mb-1">
                 <span className="flex items-center gap-1 text-[9px] font-mono text-slate-500">
-                  <BrainCircuit className="w-2.5 h-2.5 text-indigo-300" />
+                  <BrainCircuit className="w-2.5 h-2.5 text-sky-300" />
                   RailBuddy confidence
                 </span>
-                <span className="text-[10px] font-mono font-bold text-indigo-300 tabular-nums">
+                <span className="text-[10px] font-mono font-bold text-sky-300 tabular-nums">
                   {confidencePct}%
                 </span>
               </div>
               <div className="h-1 w-full rounded-full bg-white/6 overflow-hidden">
                 <div
-                  className="h-full rounded-full bg-gradient-to-r from-indigo-400/70 to-sky-300 transition-all duration-700"
+                  className="h-full rounded-full bg-gradient-to-r from-sky-400/70 to-sky-300 transition-all duration-700"
                   style={{ width: `${confidencePct}%` }}
                 />
               </div>
@@ -318,7 +318,7 @@ export const TrainEtaSidePanel: React.FC<TrainEtaSidePanelProps> = ({
                   </div>
                   <div>
                     <div className="rb-label mb-0.5">Confidence</div>
-                    <div className="text-[13px] font-mono font-bold text-indigo-300 tabular-nums">
+                    <div className="text-[13px] font-mono font-bold text-sky-300 tabular-nums">
                       {confidencePct ?? '—'}
                       <span className="text-[9px] text-slate-500 font-normal ml-0.5">%</span>
                     </div>

@@ -123,9 +123,15 @@ export interface LiveTrainPayload {
 }
 
 const DEFAULT_API_BASE_URL = 'http://127.0.0.1:8000';
+const DEFAULT_BACKEND_API_BASE_URL = 'http://127.0.0.1:4000';
 
 export function getApiBaseUrl(): string {
   return (process.env.NEXT_PUBLIC_ML_API_URL || DEFAULT_API_BASE_URL).replace(/\/+$/, '');
+}
+
+/** Node.js railbuddy-backend (Express, port 4000) which proxies RailRadar. */
+export function getBackendApiBaseUrl(): string {
+  return (process.env.NEXT_PUBLIC_BACKEND_API_URL || DEFAULT_BACKEND_API_BASE_URL).replace(/\/+$/, '');
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -574,4 +580,90 @@ export async function fetchMapCongestion(
     throw new Error(extractErrorDetail(body, res.status));
   }
   return (await res.json()) as { success: boolean; corridors: CongestionCorridor[] };
+}
+
+// =============================================================================
+// Real trains between stations (Node backend -> RailRadar)
+// =============================================================================
+
+export interface BetweenTrainLive {
+  type?: string;
+  startDate?: string;
+  departedAt?: string;
+  delayMinutes?: number;
+  platform?: string | null;
+}
+
+export interface BetweenTrainStop {
+  code: string;
+  name: string;
+  city?: string;
+  departure?: string;
+  arrival?: string;
+  day?: number;
+  sequence?: number;
+}
+
+export interface BetweenTrain {
+  train: {
+    number: string;
+    name: string;
+    type: string;
+    runDays: string[];
+    runningDaysBitmap?: number;
+  };
+  from: BetweenTrainStop;
+  to: BetweenTrainStop;
+  distance: number;
+  duration: number; // travel time in minutes
+  totalHaltsBetween: number;
+  live?: BetweenTrainLive | null;
+}
+
+export interface TrainsBetweenData {
+  from: { code: string; name: string };
+  to: { code: string; name: string };
+  trains: BetweenTrain[];
+  count: number;
+}
+
+export interface TrainsBetweenResponse {
+  success: boolean;
+  data?: TrainsBetweenData;
+  error?: { code?: string; message?: string };
+}
+
+export async function fetchTrainsBetween(
+  from: string,
+  to: string,
+  options: { date?: string; live?: boolean; signal?: AbortSignal } = {},
+): Promise<TrainsBetweenData> {
+  const params = new URLSearchParams();
+  params.set('from', from);
+  params.set('to', to);
+  if (options.date) params.set('date', options.date);
+  params.set('live', options.live === false ? 'false' : 'true');
+
+  const res = await fetch(
+    `${getBackendApiBaseUrl()}/api/trains/between?${params.toString()}`,
+    { signal: options.signal },
+  );
+
+  if (!res.ok) {
+    let body: unknown = null;
+    try {
+      body = await res.json();
+    } catch {
+      /* non-JSON error body — fall through to generic message */
+    }
+    const err = (body as TrainsBetweenResponse | null)?.error;
+    throw new Error((err?.message || extractErrorDetail(body, res.status)).replace(/\.?$/, '.'));
+  }
+
+  const data: unknown = await res.json();
+  const parsed = data as TrainsBetweenResponse;
+  if (!parsed?.data) {
+    throw new Error(parsed?.error?.message || 'No train data returned for this route.');
+  }
+  return parsed.data;
 }

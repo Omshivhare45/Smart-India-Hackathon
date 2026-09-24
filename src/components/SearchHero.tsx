@@ -26,6 +26,8 @@ interface SearchHeroProps {
   setDestCode: (code: string) => void;
   trainQuery: string;
   setTrainQuery: (q: string) => void;
+  travelDate: string;
+  setTravelDate: (d: string) => void;
   onSearchStations: () => void;
   onSelectTrain: (train: TrainType) => void;
   searched: boolean;
@@ -45,6 +47,25 @@ const DATE_OPTIONS = (() => {
   return opts;
 })();
 
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+export function journeyDateOptions(): string[] {
+  return DATE_OPTIONS;
+}
+
+/** "Today, 24 Sep 2026" / "Fri, 26 Sep 2026" -> "2026-09-24" (defaults to today). */
+export function journeyDateToISO(label: string): string {
+  const m = String(label || '')
+    .match(/(\d{1,2})\s+([A-Za-z]{3,})\s+(\d{4})/);
+  const today = new Date();
+  if (!m) return today.toISOString().slice(0, 10);
+  const day = m[1].padStart(2, '0');
+  const monthName = m[2].charAt(0).toUpperCase() + m[2].slice(1, 3).toLowerCase();
+  const monthIdx = MONTHS.indexOf(monthName);
+  if (monthIdx === -1) return today.toISOString().slice(0, 10);
+  return `${m[3]}-${String(monthIdx + 1).padStart(2, '0')}-${day}`;
+}
+
 export const SearchHero: React.FC<SearchHeroProps> = ({
   activeTab,
   setActiveTab,
@@ -54,6 +75,8 @@ export const SearchHero: React.FC<SearchHeroProps> = ({
   setDestCode,
   trainQuery,
   setTrainQuery,
+  travelDate,
+  setTravelDate,
   onSearchStations,
   onSelectTrain,
   searched,
@@ -63,7 +86,6 @@ export const SearchHero: React.FC<SearchHeroProps> = ({
   const [trainDropdownOpen, setTrainDropdownOpen] = useState(false);
   const [sourceFilter, setSourceFilter] = useState('');
   const [destFilter, setDestFilter] = useState('');
-  const [travelDate, setTravelDate] = useState(DATE_OPTIONS[0]);
   const [isExpanded, setIsExpanded] = useState(true);
 
   const filteredSources = useMemo(

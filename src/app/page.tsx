@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import {
   TrendingUp,
@@ -12,12 +12,15 @@ import {
   Route,
   Radar,
   Sparkles,
+  RefreshCw,
+  AlertTriangle,
 } from 'lucide-react';
 import { AppShell } from '../components/layout/AppShell';
 import { VIEW_META } from '../components/layout/navConfig';
-import { SearchHero } from '../components/SearchHero';
+import { SearchHero, journeyDateOptions, journeyDateToISO } from '../components/SearchHero';
 import { Services } from '../components/Services';
 import { TrainCard } from '../components/TrainCard';
+import { RealTrainCard } from '../components/RealTrainCard';
 import { LiveTrainTracker } from '../components/LiveTrainTracker';
 import { StationRadar } from '../components/StationRadar';
 import { CoachSeatModal } from '../components/CoachSeatModal';
@@ -29,16 +32,18 @@ import { SettingsView } from '../components/views/SettingsView';
 import { AboutView } from '../components/views/AboutView';
 import { TRAINS, STATIONS } from '../data/trainData';
 import { Train } from '../types/train';
+import { fetchTrainsBetween } from '../lib/api';
+import { mapTrainsBetween } from '../lib/realTrains';
 
 const RailwayMap = dynamic(
   () => import('../components/map/RailwayMap').then((mod) => mod.RailwayMap),
   {
     ssr: false,
     loading: () => (
-      <div className="w-full h-[700px] bg-[#0B0F19] flex items-center justify-center text-slate-400 font-mono text-xs">
+      <div className="w-full h-[700px] bg-[#161D26] flex items-center justify-center text-slate-400 font-mono text-xs">
         <div className="flex items-center gap-2">
-          <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-          <span>Loading railway map...</span>
+          <div className="w-5 h-5 border-2 border-sky-500 border-t-transparent rounded-full animate-spin" />
+          <span>Loading railway map…</span>
         </div>
       </div>
     ),
@@ -52,11 +57,12 @@ const TRACKING_VIEWS: AppView[] = ['live', 'eta', 'delay', 'route'];
 export default function Home() {
  const [activeView, setActiveView] = useState<AppView>('trains');
 
- // Navigation & Search State
+// Navigation & Search State
  const [activeTab, setActiveTab] = useState<'stations' | 'trainNumber'>('stations');
  const [sourceCode, setSourceCode] = useState<string>('NDLS');
  const [destCode, setDestCode] = useState<string>('BSB');
  const [trainQuery, setTrainQuery] = useState<string>('');
+ const [travelDate, setTravelDate] = useState<string>(journeyDateOptions()[0]);
  const [selectedStationRadar, setSelectedStationRadar] = useState<string>('NDLS');
 
  // Active Live Train selection for modal/tracker
@@ -66,7 +72,14 @@ export default function Home() {
  // SEARCHED STATE: Initially false so the user only sees the Source to Destination layout!
  const [searched, setSearched] = useState<boolean>(false);
 
- // Filtered Trains for Station Search
+ // REAL trains between the searched source/destination (RailRadar via Express backend)
+ const [realTrains, setRealTrains] = useState<Train[]>([]);
+ const [trainsLoading, setTrainsLoading] = useState<boolean>(false);
+ const [trainsError, setTrainsError] = useState<string | null>(null);
+ const [searchKey, setSearchKey] = useState<string | null>(null);
+ const searchSeqRef = useRef<number>(0);
+
+ // Filtered Trains for Station Search (fallback catalog)
  const matchingTrains = useMemo(() => {
  return TRAINS.filter((t) => {
  const matchSource = t.sourceCode === sourceCode || t.route.some((r) => r.stationCode === sourceCode);
@@ -75,21 +88,44 @@ export default function Home() {
  });
  }, [sourceCode, destCode]);
 
- // Fallback to relevant trains if no direct match in mock
- const displayTrains = matchingTrains.length > 0 ? matchingTrains : TRAINS.slice(0, 3);
+ // Real trains when a search has completed; otherwise fall back to the catalog.
+ const usingRealTrains = searchKey !== null && !trainsLoading && realTrains.length > 0;
+ const displayTrains = usingRealTrains ? realTrains : matchingTrains.length > 0 ? matchingTrains : TRAINS.slice(0, 3);
 
 const handleSearchStations = () => {
  setSearched(true);
- // Auto-select the first train for the live tracker
- if (!selectedLiveTrain) {
-  setSelectedLiveTrain(displayTrains[0] || TRAINS[0]);
+ const dateISO = journeyDateToISO(travelDate);
+ const key = `${sourceCode}|${destCode}|${dateISO}`;
+ setSearchKey(key);
+ setTrainsLoading(true);
+ setTrainsError(null);
+ const seq = ++searchSeqRef.current;
+
+ fetchTrainsBetween(sourceCode, destCode, { date: dateISO, live: true })
+ .then((data) => {
+ if (seq !== searchSeqRef.current) return;
+ const mapped = mapTrainsBetween(data);
+ setRealTrains(mapped);
+ if (mapped.length > 0) {
+ setSelectedLiveTrain((prev) => prev ?? mapped[0]);
  }
+ })
+ .catch((err: unknown) => {
+ if (seq !== searchSeqRef.current) return;
+ setRealTrains([]);
+ setTrainsError((err as Error).message || 'Could not fetch real trains.');
+ setSelectedLiveTrain((prev) => prev ?? matchingTrains[0] || TRAINS[0]);
+ })
+ .finally(() => {
+ if (seq === searchSeqRef.current) setTrainsLoading(false);
+ });
+
  // Smoothly scroll down to train details
  setTimeout(() => {
-  const resultsEl = document.getElementById('journey-details');
-  if (resultsEl) {
-   resultsEl.scrollIntoView({ behavior: 'smooth' });
-  }
+ const resultsEl = document.getElementById('journey-details');
+ if (resultsEl) {
+ resultsEl.scrollIntoView({ behavior: 'smooth' });
+ }
  }, 150);
 };
 
@@ -221,9 +257,11 @@ const handleSearchStations = () => {
  setSourceCode={setSourceCode}
  destCode={destCode}
  setDestCode={setDestCode}
- trainQuery={trainQuery}
- setTrainQuery={setTrainQuery}
- onSearchStations={handleSearchStations}
+trainQuery={trainQuery}
+  setTrainQuery={setTrainQuery}
+  travelDate={travelDate}
+  setTravelDate={setTravelDate}
+  onSearchStations={handleSearchStations}
  onSelectTrain={(t) => {
  setSearched(true);
  setSelectedLiveTrain(t);
@@ -290,24 +328,58 @@ const handleSearchStations = () => {
  <div id="journey-details" className="space-y-12">
  {/* SECTION 1: AVAILABLE TRAINS LIST */}
  <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-8 space-y-6">
- <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#E2E8F0] pb-4">
- <div>
- <div className="flex items-center gap-2">
- <span className="w-2.5 h-2.5 rounded-none bg-[#1D4ED8]" />
- <h3 className="text-2xl font-extrabold text-[#13213E]">
- Available Trains: <span className="text-[#2563EB]">{sourceCode}</span> ➔ <span className="text-[#13213E]">{destCode}</span>
- </h3>
- </div>
- <p className="text-xs text-[#64748B] mt-1 font-medium">
- {displayTrains.length} Services Found • Click &quot;Track Live Status&quot; to view real-time NTES status &amp; station timeline below
- </p>
- </div>
+<div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#E2E8F0] pb-4">
+  <div>
+  <div className="flex items-center gap-2">
+  <span className="w-2.5 h-2.5 rounded-none bg-[#1D4ED8]" />
+  <h3 className="text-2xl font-extrabold text-[#13213E]">
+  Available Trains: <span className="text-[#2563EB]">{sourceCode}</span> ➔ <span className="text-[#13213E]">{destCode}</span>
+  </h3>
+  </div>
+  <p className="text-xs text-[#64748B] mt-1 font-medium">
+  {trainsLoading
+  ? 'Fetching real-time trains from the rail network…'
+  : `${usingRealTrains ? realTrains.length : displayTrains.length} Services Found • Click "Track Live Status" to view real-time status &amp; station timeline below`}
+  </p>
+  </div>
 
- <div className="flex items-center gap-2 text-xs text-[#13213E] font-mono bg-[#FFFFFF] px-3.5 py-1.5 rounded-none border border-[#E2E8F0] shadow-xs">
- <span className="w-2 h-2 rounded-none bg-emerald-500 "></span>
- <span>Live source: NTES / IRCTC</span>
- </div>
- </div>
+  <div className="flex items-center gap-2 text-xs text-[#13213E] font-mono bg-[#FFFFFF] px-3.5 py-1.5 rounded-none border border-[#E2E8F0] shadow-xs">
+  {trainsLoading ? (
+  <>
+  <RefreshCw className="w-3 h-3 text-[#1D4ED8] animate-spin" />
+  <span>Fetching RailRadar…</span>
+  </>
+  ) : usingRealTrains ? (
+  <>
+  <span className="w-2 h-2 rounded-none bg-emerald-500 animate-pulse"></span>
+  <span>Live source: RailRadar / IRCTC</span>
+  </>
+  ) : (
+  <>
+  <span className="w-2 h-2 rounded-none bg-amber-400 "></span>
+  <span>Source: demo catalog</span>
+  </>
+  )}
+  </div>
+  </div>
+
+  {/* Real-data loading state */}
+  {trainsLoading && (
+  <div className="border border-dashed border-[#B9C4D4] bg-[#F8FAFC] p-6 text-sm text-[#64748B] font-medium flex items-center gap-3">
+  <div className="w-5 h-5 border-2 border-[#2563EB] border-t-transparent rounded-none animate-spin" />
+  Fetching all real trains between {sourceCode} and {destCode} from the RailRadar live feed…
+  </div>
+  )}
+
+  {/* Real-data error state — falls back to the demo catalog */}
+  {!trainsLoading && trainsError && (
+  <div className="rounded-none bg-[#EEF4FC] border border-[#1D4ED8]/30 p-4 flex items-start gap-3">
+  <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+  <div className="text-xs text-[#13213E]">
+  <span className="font-bold">Could not fetch real trains.</span> {trainsError} Showing the local demo catalog below instead. Start the Express backend (<code className="font-mono text-[#1D4ED8] bg-white px-1 py-0.5 border border-[#E2E8F0]">npm run dev</code> in <code className="font-mono text-[#1D4ED8]">backend/</code>) with <code className="font-mono text-[#1D4ED8]">RAILRADAR_API_KEY</code> set.
+  </div>
+  </div>
+  )}
 
  {/* Feature hint for ETA / Delay predictions before tracked */}
  {isTrackingView && !selectedLiveTrain && (
@@ -340,17 +412,26 @@ const handleSearchStations = () => {
  </div>
  )}
 
- {/* Full train cards */}
+ {/* Full train cards — real RailRadar trains when available, demo catalog otherwise */}
  {!isTrackingView && (
  <div className="space-y-4">
- {displayTrains.map((train) => (
+ {displayTrains.map((train) =>
+ usingRealTrains ? (
+ <RealTrainCard
+ key={train.id}
+ train={train}
+ onTrackLive={handleSelectTrain}
+ onOpenCoach={(t) => setCoachModalTrain(t)}
+ />
+ ) : (
  <TrainCard
  key={train.id}
  train={train}
  onTrackLive={handleSelectTrain}
  onOpenCoach={(t) => setCoachModalTrain(t)}
  />
- ))}
+ ),
+ )}
  </div>
  )}
  </div>
