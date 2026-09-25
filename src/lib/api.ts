@@ -170,7 +170,7 @@ export async function fetchLiveTrain(
   }
 
   const data: unknown = await res.json();
-  return data as LiveTrainPayload;
+  return data as LiveTrainPayload;  
 }
 
 export async function predictDelay(
