@@ -126,12 +126,12 @@ const DEFAULT_API_BASE_URL = 'http://127.0.0.1:8000';
 const DEFAULT_BACKEND_API_BASE_URL = 'http://127.0.0.1:4000';
 
 export function getApiBaseUrl(): string {
-  return (process.env.NEXT_PUBLIC_ML_API_URL || DEFAULT_API_BASE_URL).replace(/\/+$/, '');
+  return (process.env.ML_API_URL || DEFAULT_API_BASE_URL).replace(/\/+$/, '');
 }
 
 /** Node.js railbuddy-backend (Express, port 4000) which proxies RailRadar. */
 export function getBackendApiBaseUrl(): string {
-  return (process.env.NEXT_PUBLIC_BACKEND_API_URL || DEFAULT_BACKEND_API_BASE_URL).replace(/\/+$/, '');
+  return (process.env.BACKEND_API_URL || DEFAULT_BACKEND_API_BASE_URL).replace(/\/+$/, '');
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
