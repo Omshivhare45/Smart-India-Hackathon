@@ -114,7 +114,7 @@ const handleSearchStations = () => {
  if (seq !== searchSeqRef.current) return;
  setRealTrains([]);
  setTrainsError((err as Error).message || 'Could not fetch real trains.');
- setSelectedLiveTrain((prev) => prev ?? matchingTrains[0] || TRAINS[0]);
+ setSelectedLiveTrain((prev) => prev ?? (matchingTrains[0] || TRAINS[0]));
  })
  .finally(() => {
  if (seq === searchSeqRef.current) setTrainsLoading(false);

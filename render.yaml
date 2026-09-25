@@ -1,0 +1,65 @@
+# Render blueprint for RailBuddy.
+#
+# Render only auto-detects `render.yaml` at the REPOSITORY ROOT, so this file
+# must live here (it used to sit in ml/ where Render never read it).
+#
+# The repo is a monorepo with three deployables:
+#   .       -> Next.js frontend      (root package.json, has a "build" script)
+#   backend -> Express + RailRadar   (NO "build" script - install only)
+#   ml      -> FastAPI + uvicorn    (Python runtime)
+services:
+  # ---------------------------------------------------------------------------
+  # 1. Next.js frontend
+  # ---------------------------------------------------------------------------
+  - type: web
+    name: railbuddy-web
+    runtime: node
+    rootDir: .
+    buildCommand: npm install && npm run build
+    startCommand: npm run start
+    healthCheckPath: /
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      # Baked into the client bundle at BUILD time, so they must be set here -
+      # not only at runtime. Point at the two services below.
+      - key: NEXT_PUBLIC_ML_API_URL
+        sync: false
+      - key: NEXT_PUBLIC_BACKEND_API_URL
+        sync: false
+
+  # ---------------------------------------------------------------------------
+  # 2. Express backend (RailRadar proxy)
+  #    Plain Node app: it has no compile/bundle step, so the build command must
+  #    NOT call `npm run build` (that is what produced "Missing script: build").
+  # ---------------------------------------------------------------------------
+  - type: web
+    name: railbuddy-backend
+    runtime: node
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: RAILRADAR_API_KEY
+        sync: false
+      - key: RAILRADAR_RATE_LIMIT_PER_MIN
+        value: "120"
+      - key: MONGODB_URI
+        sync: false
+
+  # ---------------------------------------------------------------------------
+  # 3. FastAPI ML service (ETA / delay prediction)
+  # ---------------------------------------------------------------------------
+  - type: web
+    name: railbuddy-ml
+    runtime: python
+    rootDir: ml
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12"

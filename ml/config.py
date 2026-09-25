@@ -7,6 +7,7 @@ from anywhere inside the repository.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 # Root of the ML module (directory containing this file)
@@ -75,20 +76,26 @@ CONFIDENCE_SCALE_MINUTES = 120.0
 # ---------------------------------------------------------------------------
 # Artifacts
 # ---------------------------------------------------------------------------
-# C: drive has no free space, so artifacts live on the D: drive.
-ARTIFACTS_DIR = Path("D:/railbuddy_ml_artifacts")
+# Trained artifacts. Defaults to the committed `ml/artifacts/` directory so the
+# service works on any platform (Render/Linux has no D: drive). Set
+# RAILBUDDY_ARTIFACTS_DIR to relocate them (the local C: drive has no free
+# space, so training runs may point this at the D: drive).
+ARTIFACTS_DIR = Path(
+    os.environ.get("RAILBUDDY_ARTIFACTS_DIR") or (ML_ROOT / "artifacts")
+)
 MODEL_META_FILE = ARTIFACTS_DIR / "model_meta.json"
 ENSEMBLE_FILE = ARTIFACTS_DIR / "ensemble.joblib"
 PREPROCESSOR_FILE = ARTIFACTS_DIR / "preprocessor.joblib"
 FEATURE_COLUMNS_FILE = ARTIFACTS_DIR / "feature_columns.json"
 TRAIN_HISTORY_FILE = ARTIFACTS_DIR / "train_history.json"
 
-# Nominal files for the 4 trained model configurations (2 algorithms x 2 configs)
+# Nominal files for the trained model configurations. These names must match the
+# `best_model` / `ensemble.weights` keys in model_meta.json. Only the small
+# runtime artifacts are committed to git (see ml/.gitignore), so these are the
+# GradientBoosting (best) and LightGBM (ensemble) pair.
 MODEL_FILES = {
-    "RandomForest-A": ARTIFACTS_DIR / "rf_a.joblib",
-    "RandomForest-B": ARTIFACTS_DIR / "rf_b.joblib",
-    "XGBoost-A": ARTIFACTS_DIR / "xgb_a.joblib",
-    "XGBoost-B": ARTIFACTS_DIR / "xgb_b.joblib",
+    "GradientBoosting": ARTIFACTS_DIR / "gb.joblib",
+    "LightGBM": ARTIFACTS_DIR / "lgbm.joblib",
 }
 
 # ---------------------------------------------------------------------------
