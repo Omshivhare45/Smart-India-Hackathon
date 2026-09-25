@@ -667,3 +667,39 @@ export async function fetchTrainsBetween(
   }
   return parsed.data;
 }
+
+// =============================================================================
+// Real Indian Railways station directory (Node backend -> RailRadar)
+// =============================================================================
+
+export interface RealStation {
+  code: string;
+  name: string;
+}
+
+export interface StationsResponse {
+  success: boolean;
+  count: number;
+  data: RealStation[];
+}
+
+export async function fetchStations(signal?: AbortSignal): Promise<RealStation[]> {
+  const res = await fetch(`${getBackendApiBaseUrl()}/api/stations?limit=0`, { signal });
+
+  if (!res.ok) {
+    let body: unknown = null;
+    try {
+      body = await res.json();
+    } catch {
+      /* non-JSON error body — fall through to generic message */
+    }
+    const err = (body as { error?: { message?: string } } | null)?.error;
+    throw new Error((err?.message || extractErrorDetail(body, res.status)).replace(/\.?$/, '.'));
+  }
+
+  const parsed = (await res.json()) as StationsResponse;
+  if (!Array.isArray(parsed?.data)) {
+    throw new Error('Station directory unavailable.');
+  }
+  return parsed.data;
+}

@@ -132,7 +132,8 @@ let stationsCache = null;
 let stationsCacheAt = 0;
 const STATIONS_CACHE_TTL_MS = 60 * 60 * 1000;
 
-export async function searchStations(q) {
+/** Full RailRadar station directory (code -> name), cached for 1 hour. */
+export async function getStationCatalog(limit = 0) {
   const now = Date.now();
   if (!stationsCache || now - stationsCacheAt > STATIONS_CACHE_TTL_MS) {
     const data = await railradarFetch('/lookup/stations');
@@ -143,12 +144,19 @@ export async function searchStations(q) {
     stationsCacheAt = now;
   }
 
-  const needle = String(q || '').trim().toLowerCase();
-  const entries = Object.entries(stationsCache).filter(([code, name]) => {
-    if (!needle) return true;
-    return code.toLowerCase().includes(needle) || String(name).toLowerCase().includes(needle);
-  });
+  const list = Object.entries(stationsCache).map(([code, name]) => ({ code, name }));
+  return limit > 0 ? list.slice(0, Math.floor(limit)) : list;
+}
 
-  const limit = needle ? 12 : 30;
-  return entries.slice(0, limit).map(([code, name]) => ({ code, name }));
+/** Search the real station directory by code or name (limit caps the result). */
+export async function searchStations(q, limit = 12) {
+  const needle = String(q || '').trim().toLowerCase();
+  const list = await getStationCatalog(0);
+
+  if (!needle) return list.slice(0, limit);
+  return list
+    .filter(
+      (s) => s.code.toLowerCase().includes(needle) || String(s.name).toLowerCase().includes(needle),
+    )
+    .slice(0, limit);
 }
