@@ -122,8 +122,15 @@ export interface LiveTrainPayload {
   pipeline?: LiveTrainPipelineStep[];
 }
 
-const DEFAULT_API_BASE_URL = 'http://127.0.0.1:8000';
-const DEFAULT_BACKEND_API_BASE_URL = 'http://127.0.0.1:4000';
+const DEFAULT_API_BASE_URL =
+  process.env.NODE_ENV === 'production'
+    ? 'https://smart-india-hackathon-4-np14.onrender.com'
+    : 'http://127.0.0.1:8000';
+
+const DEFAULT_BACKEND_API_BASE_URL =
+  process.env.NODE_ENV === 'production'
+    ? 'https://smart-india-hackathon-3ibs.onrender.com'
+    : 'http://127.0.0.1:4000';
 
 export function getApiBaseUrl(): string {
   return (process.env.ML_API_URL || DEFAULT_API_BASE_URL).replace(/\/+$/, '');
