@@ -15,8 +15,9 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import { Train as TrainType, Station } from '../types/train';
-import { STATIONS, TRAINS } from '../data/trainData';
-import { fetchStations } from '../lib/api';
+import { fetchTrainSearch, RealTrainRef } from '../lib/api';
+import { mapTrainRef } from '../lib/realTrains';
+import { filterStations, useStationDirectory } from '../lib/useStationDirectory';
 
 export type SearchTab = 'stations' | 'trainNumber';
 
@@ -34,6 +35,8 @@ interface SearchHeroProps {
   onSearchStations: () => void;
   onSelectTrain: (train: TrainType) => void;
   searched: boolean;
+  /** `hero` renders the landing headline above the card; `plain` renders the card only. */
+  variant?: 'hero' | 'plain';
 }
 
 const DATE_OPTIONS = (() => {
@@ -52,14 +55,16 @@ const DATE_OPTIONS = (() => {
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
+/** Debounce for the train autocomplete, so each keystroke hits the API once. */
+const TRAIN_SEARCH_DEBOUNCE_MS = 300;
+
 export function journeyDateOptions(): string[] {
   return DATE_OPTIONS;
 }
 
 /** "Today, 24 Sep 2026" / "Fri, 26 Sep 2026" -> "2026-09-24" (defaults to today). */
 export function journeyDateToISO(label: string): string {
-  const m = String(label || '')
-    .match(/(\d{1,2})\s+([A-Za-z]{3,})\s+(\d{4})/);
+  const m = String(label || '').match(/(\d{1,2})\s+([A-Za-z]{3,})\s+(\d{4})/);
   const today = new Date();
   if (!m) return today.toISOString().slice(0, 10);
   const day = m[1].padStart(2, '0');
@@ -83,6 +88,7 @@ export const SearchHero: React.FC<SearchHeroProps> = ({
   onSearchStations,
   onSelectTrain,
   searched,
+  variant = 'plain',
 }) => {
   const [sourceDropdownOpen, setSourceDropdownOpen] = useState(false);
   const [destDropdownOpen, setDestDropdownOpen] = useState(false);
@@ -91,72 +97,64 @@ export const SearchHero: React.FC<SearchHeroProps> = ({
   const [destFilter, setDestFilter] = useState('');
   const [isExpanded, setIsExpanded] = useState(true);
 
-  // REAL full Indian Railways station directory (all ~13k stations).
-  const [stations, setStations] = useState<Station[] | null>(null);
-  const [stationsLoading, setStationsLoading] = useState(false);
-  const [stationsError, setStationsError] = useState<string | null>(null);
-  const stationsLoadedRef = useRef(false);
+  // REAL full Indian Railways station directory (all ~13k stations, MongoDB).
+  const { stations, isLive: usingRealStations, loading: stationsLoading, error: stationsError } =
+    useStationDirectory();
 
-  useEffect(() => {
-    if (stationsLoadedRef.current) return;
-    stationsLoadedRef.current = true;
-    const controller = new AbortController();
-    setStationsLoading(true);
-    setStationsError(null);
-    fetchStations(controller.signal)
-      .then((list) =>
-        setStations(
-          list.map((s) => ({ code: s.code, name: s.name, city: '', state: '' })),
-        ),
-      )
-      .catch((err: unknown) => {
-        if ((err as Error).name === 'AbortError') return;
-        setStations(null);
-        setStationsError((err as Error).message || 'Station directory unavailable.');
-      })
-      .finally(() => {
-        setStationsLoading(false);
-      });
-    return () => controller.abort();
-  }, []);
-
-  const allStations = useMemo<Station[]>(() => stations ?? STATIONS, [stations]);
-  const usingRealStations = stations !== null;
+  const allStations: Station[] = stations;
 
   const filteredSources = useMemo(
-    () =>
-      allStations.filter(
-        (s) =>
-          s.name.toLowerCase().includes(sourceFilter.toLowerCase()) ||
-          s.code.toLowerCase().includes(sourceFilter.toLowerCase()) ||
-          s.city.toLowerCase().includes(sourceFilter.toLowerCase())
-      ).slice(0, 50),
-    [sourceFilter, allStations]
+    () => filterStations(allStations, sourceFilter).slice(0, 50),
+    [sourceFilter, allStations],
   );
 
   const filteredDests = useMemo(
-    () =>
-      allStations.filter(
-        (s) =>
-          s.name.toLowerCase().includes(destFilter.toLowerCase()) ||
-          s.code.toLowerCase().includes(destFilter.toLowerCase()) ||
-          s.city.toLowerCase().includes(destFilter.toLowerCase())
-      ).slice(0, 50),
-    [destFilter, allStations]
+    () => filterStations(allStations, destFilter).slice(0, 50),
+    [destFilter, allStations],
   );
 
-  const trainSuggestions = useMemo(() => {
-    if (!trainQuery.trim()) return TRAINS.slice(0, 5);
-    const q = trainQuery.toLowerCase();
-    return TRAINS.filter(
-      (t) =>
-        t.trainNumber.includes(q) ||
-        t.trainName.toLowerCase().includes(q) ||
-        t.sourceName.toLowerCase().includes(q) ||
-        t.destinationName.toLowerCase().includes(q) ||
-        t.sourceCode.toLowerCase().includes(q) ||
-        t.destinationCode.toLowerCase().includes(q)
-    );
+  // REAL Indian Railways train directory, searched by number or name on demand.
+  const [trainResults, setTrainResults] = useState<RealTrainRef[]>([]);
+  const [trainSearchLoading, setTrainSearchLoading] = useState<boolean>(false);
+  const [trainSearchError, setTrainSearchError] = useState<string | null>(null);
+  const [selectedTrainRef, setSelectedTrainRef] = useState<RealTrainRef | null>(null);
+  // Label written into the box by pickTrain. Re-querying it would burn provider
+  // quota for a result we already have, so the effect skips it.
+  const selectedTrainLabelRef = useRef<string | null>(null);
+
+  // Debounced train autocomplete — one provider request per keystroke burst.
+  useEffect(() => {
+    const q = trainQuery.trim();
+    if (!q || q === selectedTrainLabelRef.current) {
+      setTrainResults([]);
+      setTrainSearchLoading(false);
+      setTrainSearchError(null);
+      return;
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      setTrainSearchLoading(true);
+      setTrainSearchError(null);
+      fetchTrainSearch(q, { signal: controller.signal })
+        .then((results) => {
+          if (controller.signal.aborted) return;
+          setTrainResults(results);
+        })
+        .catch((err: unknown) => {
+          if ((err as Error).name === 'AbortError') return;
+          setTrainResults([]);
+          setTrainSearchError((err as Error).message || 'Train directory unavailable.');
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setTrainSearchLoading(false);
+        });
+    }, TRAIN_SEARCH_DEBOUNCE_MS);
+
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
   }, [trainQuery]);
 
   const handleSwapStations = (e?: React.MouseEvent) => {
@@ -166,19 +164,40 @@ export const SearchHero: React.FC<SearchHeroProps> = ({
     setDestCode(temp);
   };
 
+  const findStation = (code: string) => allStations.find((s) => s.code === code);
+
   const getStationName = (code: string) => {
     if (!code) return 'Select station';
-    const found = allStations.find((s) => s.code === code);
-    return found ? `${found.name} (${found.code})` : 'Select station';
+    const found = findStation(code);
+    return found ? found.name : 'Select station';
   };
 
   const getStationShort = (code: string) => {
-    const found = allStations.find((s) => s.code === code);
-    return found ? found.city || found.name : 'Station';
+    const found = findStation(code);
+    if (!found) return 'Station';
+    return found.city || found.name;
   };
 
   const collapseAfterAction = () => {
     if (searched) setIsExpanded(false);
+  };
+
+  // Selecting a search result hands a minimal train to the existing tracker,
+  // which then pulls the real schedule + live status by train number.
+  const pickTrain = (ref: RealTrainRef) => {
+    const label = `${ref.number} - ${ref.name}`;
+    selectedTrainLabelRef.current = label;
+    setSelectedTrainRef(ref);
+    setTrainQuery(label);
+    setTrainDropdownOpen(false);
+    onSelectTrain(mapTrainRef(ref));
+    collapseAfterAction();
+  };
+
+  // "Search Trains" acts on the chosen result, else the top suggestion.
+  const trackTopTrainResult = () => {
+    const ref = selectedTrainRef ?? trainResults[0];
+    if (ref) pickTrain(ref);
   };
 
   // ==========================================
@@ -186,47 +205,51 @@ export const SearchHero: React.FC<SearchHeroProps> = ({
   // ==========================================
   if (searched && !isExpanded) {
     return (
-      <section className="pt-4 pb-4 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
-        <div className="bg-white rounded-none p-4 border border-[#E2E8F0] flex flex-col md:flex-row items-center justify-between gap-4">
+      <section className="px-4 sm:px-6 lg:px-8 max-w-[1280px] mx-auto pt-6">
+        <div className="rb-card p-4 flex flex-col md:flex-row items-center justify-between gap-4">
           <div className="flex flex-wrap items-center gap-3">
             {activeTab === 'stations' ? (
               <>
-                <span className="text-sm font-bold text-[#13213E]">{getStationShort(sourceCode)}</span>
+                <span className="text-sm font-semibold text-[#101F36]">
+                  {getStationShort(sourceCode)}
+                  <span className="ml-1.5 font-mono text-xs text-[#123A6B]">{sourceCode}</span>
+                </span>
                 <button
                   onClick={handleSwapStations}
-                  className="p-1.5 rounded-none bg-[#F8FAFC] hover:bg-[#EEF4FC] text-[#1D4ED8] border border-[#E2E8F0]"
+                  className="p-1.5 rounded-lg bg-[#F4F7FB] hover:bg-[#EEF3F9] text-[#123A6B] border border-[#E3E8EF] cursor-pointer"
                   title="Swap Stations"
                 >
-                  <ArrowRightLeft className="w-3.5 h-3.5" />
+                  <ArrowRightLeft className="h-3.5 w-3.5" />
                 </button>
-                <span className="text-sm font-bold text-[#13213E]">{getStationShort(destCode)}</span>
+                <span className="text-sm font-semibold text-[#101F36]">
+                  {getStationShort(destCode)}
+                  <span className="ml-1.5 font-mono text-xs text-[#123A6B]">{destCode}</span>
+                </span>
               </>
             ) : (
-              <span className="text-sm font-bold text-[#13213E]">
-                <Train className="w-3.5 h-3.5 inline mr-1.5" />
+              <span className="text-sm font-semibold text-[#101F36]">
+                <Train className="h-3.5 w-3.5 inline mr-1.5 text-[#123A6B]" />
                 {trainQuery || 'Train search'}
               </span>
             )}
-            <span className="text-[#B6C2D4] hidden sm:inline">·</span>
-            <span className="text-xs font-medium text-[#64748B]">{travelDate}</span>
+            <span className="hidden sm:inline text-[#C9D8EA]">·</span>
+            <span className="text-xs font-medium text-[#5B6B82]">{travelDate}</span>
           </div>
 
           <div className="flex items-center gap-2 w-full md:w-auto justify-end">
             <button
               onClick={() => setIsExpanded(true)}
-              className="px-4 py-2 rounded-none text-[#13213E] text-xs font-semibold border border-[#E2E8F0] hover:border-[#1D4ED8]/40 flex items-center gap-1.5"
+              className="rb-btn rb-btn-secondary rb-btn-sm"
             >
-              <SlidersHorizontal className="w-3.5 h-3.5 text-[#1D4ED8]" />
+              <SlidersHorizontal className="h-3.5 w-3.5 text-[#123A6B]" />
               <span>Modify</span>
             </button>
 
             <button
-              onClick={activeTab === 'stations' ? onSearchStations : () => {
-                if (trainSuggestions[0]) onSelectTrain(trainSuggestions[0]);
-              }}
-              className="px-5 py-2 rounded-none bg-[#1D4ED8] hover:bg-[#2563EB] text-white text-xs font-semibold flex items-center gap-1.5"
+              onClick={activeTab === 'stations' ? onSearchStations : trackTopTrainResult}
+              className="rb-btn rb-btn-primary rb-btn-sm"
             >
-              <Search className="w-3.5 h-3.5" />
+              <Search className="h-3.5 w-3.5" />
               <span>Search</span>
             </button>
           </div>
@@ -236,141 +259,105 @@ export const SearchHero: React.FC<SearchHeroProps> = ({
   }
 
   // ==========================================
-  // FULL HERO: combined search card + hero image
+  // FULL CARD: hero headline (home) + search form
   // ==========================================
   return (
-    <section className="relative min-h-screen flex items-center border-b border-[#E2E8F0] bg-[#F8FAFC] overflow-hidden">
-      {/* Full hero background image */}
-      <div
-        className="absolute inset-0"
-        style={{
-          backgroundImage: 'url(/hero.png)',
-          backgroundSize: 'cover',
-          backgroundPosition: 'center',
-          backgroundRepeat: 'no-repeat',
-        }}
-      />
-
-      <div className="relative z-10 px-4 sm:px-6 lg:px-8 py-14 sm:py-16 lg:py-0 w-full max-w-[1280px] mx-auto">
-        <div className="lg:max-w-[700px]">
-          {/* Search card */}
-          <div className="bg-white rounded-none border border-[#E2E8F0] p-8 sm:p-10 shadow-[0_20px_50px_-32px_rgba(15,23,42,0.3)]">
-            {/* Heading */}
-            <h1 className="text-2xl sm:text-3xl font-bold text-[#13213E] tracking-tight">
+    <section
+      className={
+        variant === 'hero'
+          ? 'bg-white border-b border-[#E3E8EF]'
+          : 'bg-transparent'
+      }
+    >
+      <div className="mx-auto w-full max-w-[1280px] px-4 sm:px-6 lg:px-8 py-10 sm:py-14">
+        {variant === 'hero' && (
+          <div className="max-w-2xl">
+            <span className="rb-eyebrow">Indian Railways · live intelligence</span>
+            <h1 className="mt-3 text-3xl sm:text-4xl lg:text-[42px] font-extrabold tracking-tight text-[#101F36] leading-[1.1]">
               Your Next Journey Starts Here
             </h1>
-            <p className="mt-2 text-[15px] text-[#64748B]">
-              Search trains between stations or look up a specific train for real-time information.
+            <p className="mt-3 text-[15px] sm:text-base text-[#5B6B82] leading-relaxed">
+              Search trains between stations or look up a specific train for real-time information,
+              live running status and AI delay &amp; ETA forecasts.
             </p>
+            <div className="mt-5 h-1 w-16 rounded-full bg-[#E07B2C]" />
+          </div>
+        )}
 
+        {/* Search card */}
+        <div className={variant === 'hero' ? 'mt-9 max-w-[880px]' : ''}>
+          <div className="rb-card shadow-lift p-5 sm:p-7">
             {/* Search mode toggle */}
-            <div className="mt-6 inline-flex items-center bg-[#F1F5F9] rounded-none p-1 border border-[#E2E8F0]">
+            <div className="inline-flex items-center gap-1 rounded-xl bg-[#F4F7FB] border border-[#E3E8EF] p-1">
               <button
                 type="button"
                 onClick={() => setActiveTab('stations')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-none text-sm font-semibold ${
+                className={`flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-semibold cursor-pointer transition-colors ${
                   activeTab === 'stations'
-                    ? 'bg-white text-[#1D4ED8] border border-[#E2E8F0]'
-                    : 'text-[#64748B] hover:text-[#13213E]'
+                    ? 'bg-white text-[#123A6B] shadow-soft'
+                    : 'text-[#5B6B82] hover:text-[#101F36]'
                 }`}
               >
-                <ArrowRightLeft className="w-4 h-4" />
+                <ArrowRightLeft className="h-4 w-4" />
                 Between Stations
               </button>
               <button
                 type="button"
                 onClick={() => setActiveTab('trainNumber')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-none text-sm font-semibold ${
+                className={`flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-semibold cursor-pointer transition-colors ${
                   activeTab === 'trainNumber'
-                    ? 'bg-white text-[#1D4ED8] border border-[#E2E8F0]'
-                    : 'text-[#64748B] hover:text-[#13213E]'
+                    ? 'bg-white text-[#123A6B] shadow-soft'
+                    : 'text-[#5B6B82] hover:text-[#101F36]'
                 }`}
               >
-                <Hash className="w-4 h-4" />
+                <Hash className="h-4 w-4" />
                 By Train Number
               </button>
             </div>
 
             {/* Station-to-station search */}
             {activeTab === 'stations' && (
-              <div className="mt-6 space-y-5">
+              <div className="mt-6 space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] md:items-end gap-4">
                   {/* FROM */}
                   <div className="relative">
-                    <label className="block text-[11px] font-semibold uppercase tracking-wide text-[#64748B] mb-1.5">
-                      From
-                    </label>
+                    <span className="rb-field-label">From</span>
                     <button
                       type="button"
                       onClick={() => setSourceDropdownOpen(!sourceDropdownOpen)}
-                      className="w-full flex items-center justify-between gap-2 px-4 py-4 rounded-none bg-[#F8FAFC] border border-[#E2E8F0] hover:border-[#1D4ED8]/60 cursor-pointer text-left"
+                      className="rb-control cursor-pointer text-left"
                     >
                       <div className="min-w-0">
-                        <div className="text-sm font-semibold text-[#13213E] truncate">
+                        <div className="text-sm font-semibold text-[#101F36] truncate">
                           {sourceCode ? getStationName(sourceCode) : 'Select source station'}
                         </div>
-                        <div className="text-[11px] text-[#64748B]">{getStationShort(sourceCode)}</div>
-                      </div>
-                      <ChevronDown className="w-4 h-4 text-[#64748B] shrink-0" />
-                    </button>
-
-                    {sourceDropdownOpen && (
-                      <div className="absolute top-full left-0 right-0 z-30 mt-2 p-2.5 bg-white rounded-none shadow-[0_18px_40px_-20px_rgba(15,23,42,0.35)] border border-[#E2E8F0] max-h-64 overflow-y-auto">
-                        <div className="flex items-center gap-2 px-2 py-2 mb-1 border-b border-[#E2E8F0]">
-                          <MapPin className="w-3.5 h-3.5 text-[#64748B]" />
-                          <input
-                            type="text"
-                            placeholder="Search station name or code..."
-                            value={sourceFilter}
-                            onChange={(e) => setSourceFilter(e.target.value)}
-                            className="w-full text-xs outline-none text-[#13213E] placeholder-[#94A3B8] bg-transparent"
-                            autoFocus
-                          />
-                          {stationsLoading && <Loader2 className="w-3 h-3 animate-spin text-[#1D4ED8] shrink-0" />}
-                        </div>
-                        {usingRealStations && (
-                          <div className="mb-1 px-2 py-1.5 text-[10px] font-mono text-[#0E9F6E] flex items-center gap-1.5">
-                            <span className="w-1.5 h-1.5 rounded-none bg-emerald-500" />
-                            {allStations.length.toLocaleString()} real IR stations • RailRadar
-                          </div>
-                        )}
-                        {stationsLoading && (
-                          <div className="px-2 py-2 text-[11px] text-[#64748B] font-mono flex items-center gap-2">
-                            <Loader2 className="w-3 h-3 animate-spin" /> Loading all stations…
-                          </div>
-                        )}
-                        {stationsError && (
-                          <div className="px-2 py-2 text-[11px] text-[#B45309] font-medium flex items-start gap-1.5">
-                            <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                            <span>Real station feed unavailable — using offline catalog.</span>
-                          </div>
-                        )}
-                        <div className="space-y-0.5">
-                          {filteredSources.map((station) => (
-                            <button
-                              key={station.code}
-                              type="button"
-                              onClick={() => {
-                                setSourceCode(station.code);
-                                setSourceDropdownOpen(false);
-                                setSourceFilter('');
-                              }}
-                              className="w-full text-left px-3 py-2 rounded-none text-xs hover:bg-[#F8F9FC] flex items-center justify-between cursor-pointer"
-                            >
-                              <span className="font-medium text-[#13213E] truncate">
-                                {station.name}
-                                {station.city ? <span className="text-[#94A3B8]"> ({station.city})</span> : null}
-                              </span>
-                              <span className="font-mono text-[11px] font-semibold text-[#1D4ED8] shrink-0 ml-2">
-                                {station.code}
-                              </span>
-                            </button>
-                          ))}
-                          {!stationsLoading && filteredSources.length === 0 && (
-                            <div className="px-2 py-3 text-[11px] text-[#64748B]">No station matches “{sourceFilter}”.</div>
+                        <div className="text-[11px] text-[#5B6B82]">
+                          {sourceCode ? (
+                            <span className="font-mono font-semibold text-[#123A6B]">{sourceCode}</span>
+                          ) : (
+                            'Station code'
                           )}
                         </div>
                       </div>
+                      <ChevronDown className="h-4 w-4 text-[#5B6B82] shrink-0 ml-auto" />
+                    </button>
+
+                    {sourceDropdownOpen && (
+                      <StationDropdown
+                        filter={sourceFilter}
+                        setFilter={setSourceFilter}
+                        loading={stationsLoading}
+                        error={stationsError}
+                        isLive={usingRealStations}
+                        total={allStations.length}
+                        results={filteredSources}
+                        emptyLabel={`No station matches “${sourceFilter}”.`}
+                        onPick={(code) => {
+                          setSourceCode(code);
+                          setSourceDropdownOpen(false);
+                          setSourceFilter('');
+                        }}
+                      />
                     )}
                   </div>
 
@@ -380,88 +367,51 @@ export const SearchHero: React.FC<SearchHeroProps> = ({
                       type="button"
                       onClick={handleSwapStations}
                       title="Swap source and destination"
-                      className="w-10 h-10 rounded-none bg-[#1D4ED8] hover:bg-[#2563EB] text-white flex items-center justify-center border-2 border-white"
+                      className="h-10 w-10 rounded-full bg-[#123A6B] hover:bg-[#0F2F58] text-white flex items-center justify-center shadow-soft cursor-pointer"
                     >
-                      <ArrowRightLeft className="w-4 h-4" />
+                      <ArrowRightLeft className="h-4 w-4" />
                     </button>
                   </div>
 
                   {/* TO */}
                   <div className="relative">
-                    <label className="block text-[11px] font-semibold uppercase tracking-wide text-[#64748B] mb-1.5">
-                      To
-                    </label>
+                    <span className="rb-field-label">To</span>
                     <button
                       type="button"
                       onClick={() => setDestDropdownOpen(!destDropdownOpen)}
-                      className="w-full flex items-center justify-between gap-2 px-4 py-4 rounded-none bg-[#F8FAFC] border border-[#E2E8F0] hover:border-[#1D4ED8]/60 cursor-pointer text-left"
+                      className="rb-control cursor-pointer text-left"
                     >
                       <div className="min-w-0">
-                        <div className="text-sm font-semibold text-[#13213E] truncate">
+                        <div className="text-sm font-semibold text-[#101F36] truncate">
                           {destCode ? getStationName(destCode) : 'Select destination station'}
                         </div>
-                        <div className="text-[11px] text-[#64748B]">{getStationShort(destCode)}</div>
-                      </div>
-                      <ChevronDown className="w-4 h-4 text-[#64748B] shrink-0" />
-                    </button>
-
-                    {destDropdownOpen && (
-                      <div className="absolute top-full left-0 right-0 z-30 mt-2 p-2.5 bg-white rounded-none shadow-[0_18px_40px_-20px_rgba(15,23,42,0.35)] border border-[#E2E8F0] max-h-64 overflow-y-auto">
-                        <div className="flex items-center gap-2 px-2 py-2 mb-1 border-b border-[#E2E8F0]">
-                          <MapPin className="w-3.5 h-3.5 text-[#64748B]" />
-                          <input
-                            type="text"
-                            placeholder="Search station name or code..."
-                            value={destFilter}
-                            onChange={(e) => setDestFilter(e.target.value)}
-                            className="w-full text-xs outline-none text-[#13213E] placeholder-[#94A3B8] bg-transparent"
-                            autoFocus
-                          />
-                          {stationsLoading && <Loader2 className="w-3 h-3 animate-spin text-[#1D4ED8] shrink-0" />}
-                        </div>
-                        {usingRealStations && (
-                          <div className="mb-1 px-2 py-1.5 text-[10px] font-mono text-[#0E9F6E] flex items-center gap-1.5">
-                            <span className="w-1.5 h-1.5 rounded-none bg-emerald-500" />
-                            {allStations.length.toLocaleString()} real IR stations • RailRadar
-                          </div>
-                        )}
-                        {stationsLoading && (
-                          <div className="px-2 py-2 text-[11px] text-[#64748B] font-mono flex items-center gap-2">
-                            <Loader2 className="w-3 h-3 animate-spin" /> Loading all stations…
-                          </div>
-                        )}
-                        {stationsError && (
-                          <div className="px-2 py-2 text-[11px] text-[#B45309] font-medium flex items-start gap-1.5">
-                            <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                            <span>Real station feed unavailable — using offline catalog.</span>
-                          </div>
-                        )}
-                        <div className="space-y-0.5">
-                          {filteredDests.map((station) => (
-                            <button
-                              key={station.code}
-                              type="button"
-                              onClick={() => {
-                                setDestCode(station.code);
-                                setDestDropdownOpen(false);
-                                setDestFilter('');
-                              }}
-                              className="w-full text-left px-3 py-2 rounded-none text-xs hover:bg-[#F8F9FC] flex items-center justify-between cursor-pointer"
-                            >
-                              <span className="font-medium text-[#13213E] truncate">
-                                {station.name}
-                                {station.city ? <span className="text-[#94A3B8]"> ({station.city})</span> : null}
-                              </span>
-                              <span className="font-mono text-[11px] font-semibold text-[#1D4ED8] shrink-0 ml-2">
-                                {station.code}
-                              </span>
-                            </button>
-                          ))}
-                          {!stationsLoading && filteredDests.length === 0 && (
-                            <div className="px-2 py-3 text-[11px] text-[#64748B]">No station matches “{destFilter}”.</div>
+                        <div className="text-[11px] text-[#5B6B82]">
+                          {destCode ? (
+                            <span className="font-mono font-semibold text-[#123A6B]">{destCode}</span>
+                          ) : (
+                            'Station code'
                           )}
                         </div>
                       </div>
+                      <ChevronDown className="h-4 w-4 text-[#5B6B82] shrink-0 ml-auto" />
+                    </button>
+
+                    {destDropdownOpen && (
+                      <StationDropdown
+                        filter={destFilter}
+                        setFilter={setDestFilter}
+                        loading={stationsLoading}
+                        error={stationsError}
+                        isLive={usingRealStations}
+                        total={allStations.length}
+                        results={filteredDests}
+                        emptyLabel={`No station matches “${destFilter}”.`}
+                        onPick={(code) => {
+                          setDestCode(code);
+                          setDestDropdownOpen(false);
+                          setDestFilter('');
+                        }}
+                      />
                     )}
                   </div>
                 </div>
@@ -469,18 +419,18 @@ export const SearchHero: React.FC<SearchHeroProps> = ({
                 {/* Date + Search */}
                 <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-4 items-end">
                   <div className="relative">
-                    <label className="block text-[11px] font-semibold uppercase tracking-wide text-[#64748B] mb-1.5">
-                      Journey Date
-                    </label>
-                    <div className="flex items-center gap-2.5 px-4 py-4 rounded-none bg-[#F8FAFC] border border-[#E2E8F0]">
-                      <Calendar className="w-4 h-4 text-[#1D4ED8]" />
+                    <span className="rb-field-label">Journey Date</span>
+                    <div className="rb-control">
+                      <Calendar className="h-4 w-4 text-[#123A6B]" />
                       <select
                         value={travelDate}
                         onChange={(e) => setTravelDate(e.target.value)}
-                        className="w-full bg-transparent text-sm font-semibold text-[#13213E] outline-none cursor-pointer appearance-none"
+                        className="w-full bg-transparent text-sm font-semibold text-[#101F36] outline-none cursor-pointer appearance-none"
                       >
                         {DATE_OPTIONS.map((d) => (
-                          <option key={d} value={d}>{d}</option>
+                          <option key={d} value={d}>
+                            {d}
+                          </option>
                         ))}
                       </select>
                     </div>
@@ -492,11 +442,11 @@ export const SearchHero: React.FC<SearchHeroProps> = ({
                       collapseAfterAction();
                       onSearchStations();
                     }}
-                    className="flex items-center justify-center gap-2 px-8 py-4 rounded-none bg-[#1D4ED8] hover:bg-[#2563EB] text-white text-base font-semibold cursor-pointer"
+                    className="rb-btn rb-btn-primary px-7 py-4 text-[15px]"
                   >
-                    <Search className="w-4 h-4" />
+                    <Search className="h-4 w-4" />
                     <span>Search Trains</span>
-                    <ArrowRight className="w-4 h-4" />
+                    <ArrowRight className="h-4 w-4" />
                   </button>
                 </div>
               </div>
@@ -504,13 +454,11 @@ export const SearchHero: React.FC<SearchHeroProps> = ({
 
             {/* Train number search */}
             {activeTab === 'trainNumber' && (
-              <div className="mt-6 space-y-5">
+              <div className="mt-6 space-y-4">
                 <div className="relative">
-                  <label className="block text-[11px] font-semibold uppercase tracking-wide text-[#64748B] mb-1.5">
-                    Train Number or Name
-                  </label>
+                  <span className="rb-field-label">Train Number or Name</span>
                   <div className="relative flex items-center">
-                    <Search className="absolute left-3.5 w-4 h-4 text-[#64748B] pointer-events-none" />
+                    <Search className="absolute left-3.5 h-4 w-4 text-[#8B99AD] pointer-events-none" />
                     <input
                       type="text"
                       value={trainQuery}
@@ -520,47 +468,69 @@ export const SearchHero: React.FC<SearchHeroProps> = ({
                       }}
                       onFocus={() => setTrainDropdownOpen(true)}
                       placeholder="e.g. 22436, Vande Bharat, Rajdhani…"
-                      className="w-full pl-10 pr-4 py-4 rounded-none bg-[#F8FAFC] border border-[#E2E8F0] text-sm font-medium text-[#13213E] placeholder-[#94A3B8] focus:outline-none focus:border-[#1D4ED8]/60"
+                      className="w-full pl-10 pr-4 py-3.5 rounded-[10px] bg-white border border-[#E3E8EF] text-sm font-medium text-[#101F36] placeholder-[#8B99AD] focus:outline-none focus:border-[#1D4E89]"
                     />
                   </div>
 
-                  {trainDropdownOpen && trainSuggestions.length > 0 && (
-                    <div className="absolute top-full left-0 right-0 z-30 mt-2 p-2 bg-white rounded-none border border-[#E2E8F0] shadow-[0_18px_40px_-20px_rgba(15,23,42,0.35)] space-y-0.5 max-h-72 overflow-y-auto">
-                      {trainSuggestions.map((t) => (
+                  {trainDropdownOpen && (
+                    <div className="absolute top-full left-0 right-0 z-30 mt-2 p-2 rounded-xl bg-white border border-[#E3E8EF] shadow-lift space-y-0.5 max-h-72 overflow-y-auto">
+                      {!trainQuery.trim() && (
+                        <div className="px-2 py-3 text-[11px] text-[#5B6B82]">
+                          Search all Indian Railways trains by number or name — e.g. 12951, Tejas, Rajdhani.
+                        </div>
+                      )}
+
+                      {trainSearchLoading && (
+                        <div className="px-2 py-3 text-[11px] text-[#5B6B82] font-mono flex items-center gap-2">
+                          <Loader2 className="h-3 w-3 animate-spin text-[#123A6B]" /> Searching trains…
+                        </div>
+                      )}
+
+                      {trainSearchError && (
+                        <div className="px-2 py-3 text-[11px] text-[#B45309] font-medium flex items-start gap-1.5">
+                          <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                          <span>{trainSearchError}</span>
+                        </div>
+                      )}
+
+                      {!trainSearchLoading && !trainSearchError && trainQuery.trim() && trainResults.length === 0 && (
+                        <div className="px-2 py-3 text-[11px] text-[#5B6B82]">
+                          No train matches “{trainQuery.trim()}”.
+                        </div>
+                      )}
+
+                      {trainResults.map((t) => (
                         <button
-                          key={t.id}
+                          key={t.number}
                           type="button"
-                          onClick={() => {
-                            onSelectTrain(t);
-                            setTrainQuery(`${t.trainNumber} - ${t.trainName}`);
-                            setTrainDropdownOpen(false);
-                            collapseAfterAction();
-                          }}
-                          className="w-full text-left p-2.5 rounded-none hover:bg-[#F8F9FC] cursor-pointer"
+                          onClick={() => pickTrain(t)}
+                          className="w-full text-left p-2.5 rounded-lg hover:bg-[#F4F7FB] cursor-pointer"
                         >
-                          <span className="block text-sm font-semibold text-[#13213E]">
-                            {t.trainNumber} · {t.trainName}
-                          </span>
-                          <span className="block text-xs text-[#64748B] mt-0.5">
-                            {t.sourceName} → {t.destinationName}
+                          <span className="block text-sm font-semibold text-[#101F36]">
+                            <span className="font-mono text-[#123A6B]">{t.number}</span>
+                            <span className="text-[#C9D8EA] mx-1.5">·</span>
+                            {t.name}
                           </span>
                         </button>
                       ))}
+
+                      {trainResults.length > 0 && (
+                        <div className="px-2 py-1.5 text-[10px] font-mono text-[#8B99AD] border-t border-[#E3E8EF] mt-1 pt-2">
+                          {trainResults.length} match{trainResults.length === 1 ? '' : 'es'} · RailRadar
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
 
                 <button
                   type="button"
-                  onClick={() => {
-                    collapseAfterAction();
-                    if (trainSuggestions[0]) onSelectTrain(trainSuggestions[0]);
-                  }}
-                  className="w-full flex items-center justify-center gap-2 py-4 rounded-none bg-[#1D4ED8] hover:bg-[#2563EB] text-white text-base font-semibold cursor-pointer"
+                  onClick={trackTopTrainResult}
+                  className="rb-btn rb-btn-primary w-full py-4 text-[15px]"
                 >
-                  <Search className="w-4 h-4" />
+                  <Search className="h-4 w-4" />
                   <span>Search Trains</span>
-                  <ArrowRight className="w-4 h-4" />
+                  <ArrowRight className="h-4 w-4" />
                 </button>
               </div>
             )}
@@ -570,3 +540,88 @@ export const SearchHero: React.FC<SearchHeroProps> = ({
     </section>
   );
 };
+
+/* =======================================================================
+   Station dropdown — shared by the From / To selectors
+   ======================================================================= */
+
+interface StationDropdownProps {
+  filter: string;
+  setFilter: (value: string) => void;
+  loading: boolean;
+  error: string | null;
+  isLive: boolean;
+  total: number;
+  results: Station[];
+  emptyLabel: string;
+  onPick: (code: string) => void;
+}
+
+const StationDropdown: React.FC<StationDropdownProps> = ({
+  filter,
+  setFilter,
+  loading,
+  error,
+  isLive,
+  total,
+  results,
+  emptyLabel,
+  onPick,
+}) => (
+  <div className="absolute top-full left-0 right-0 z-30 mt-2 p-2 rounded-xl bg-white shadow-lift border border-[#E3E8EF] max-h-72 overflow-y-auto">
+    <div className="flex items-center gap-2 px-2 py-2 mb-1 border-b border-[#E3E8EF]">
+      <MapPin className="h-3.5 w-3.5 text-[#8B99AD]" />
+      <input
+        type="text"
+        placeholder="Search station name or code..."
+        value={filter}
+        onChange={(e) => setFilter(e.target.value)}
+        className="w-full text-xs outline-none text-[#101F36] placeholder-[#8B99AD] bg-transparent"
+        autoFocus
+      />
+      {loading && <Loader2 className="h-3 w-3 animate-spin text-[#123A6B] shrink-0" />}
+    </div>
+
+    {isLive && !loading && (
+      <div className="mb-1 px-2 py-1.5 text-[10px] font-mono text-[#0F8A5F] flex items-center gap-1.5">
+        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+        {total.toLocaleString()} real IR stations • RailRadar
+      </div>
+    )}
+
+    {loading && (
+      <div className="px-2 py-2 text-[11px] text-[#5B6B82] font-mono flex items-center gap-2">
+        <Loader2 className="h-3 w-3 animate-spin" /> Loading all stations…
+      </div>
+    )}
+
+    {error && (
+      <div className="px-2 py-2 text-[11px] text-[#B45309] font-medium flex items-start gap-1.5">
+        <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+        <span>Real station feed unavailable — using offline catalog.</span>
+      </div>
+    )}
+
+    <div className="space-y-0.5">
+      {results.map((station) => (
+        <button
+          key={station.code}
+          type="button"
+          onClick={() => onPick(station.code)}
+          className="w-full text-left px-3 py-2 rounded-lg text-xs hover:bg-[#F4F7FB] flex items-center justify-between cursor-pointer"
+        >
+          <span className="font-medium text-[#101F36] truncate">
+            {station.name}
+            {station.city ? <span className="text-[#8B99AD]"> ({station.city})</span> : null}
+          </span>
+          <span className="font-mono text-[11px] font-semibold text-[#123A6B] shrink-0 ml-2">
+            {station.code}
+          </span>
+        </button>
+      ))}
+      {!loading && results.length === 0 && (
+        <div className="px-2 py-3 text-[11px] text-[#5B6B82]">{emptyLabel}</div>
+      )}
+    </div>
+  </div>
+);

@@ -710,3 +710,82 @@ export async function fetchStations(signal?: AbortSignal): Promise<RealStation[]
   }
   return parsed.data;
 }
+
+// =============================================================================
+// Train number / name autocomplete (Node backend -> RailRadar)
+// =============================================================================
+
+/**
+ * A train identity from the MongoDB catalogue. `number` and `name` are always
+ * present; `type` only once a richer source (NTES) has enriched the row, so
+ * callers must treat it as optional.
+ */
+export interface RealTrainRef {
+  number: string;
+  name: string;
+  type?: string | null;
+}
+
+interface TrainSearchResponse {
+  success: boolean;
+  data?: unknown;
+  error?: { code?: string; message?: string };
+}
+
+/**
+ * Search the MongoDB train catalogue by number or name.
+ * GET /api/trains/search?q=...&limit=... (database-backed; no provider call).
+ */
+export async function fetchTrainSearch(
+  q: string,
+  options: { limit?: number; signal?: AbortSignal } = {},
+): Promise<RealTrainRef[]> {
+  const params = new URLSearchParams();
+  params.set('q', q);
+  params.set('limit', String(options.limit ?? 50));
+
+  const res = await fetch(
+    `${getBackendApiBaseUrl()}/api/trains/search?${params.toString()}`,
+    { signal: options.signal },
+  );
+
+  if (!res.ok) {
+    let body: unknown = null;
+    try {
+      body = await res.json();
+    } catch {
+      /* non-JSON error body — fall through to generic message */
+    }
+    const err = (body as TrainSearchResponse | null)?.error;
+    throw new Error((err?.message || extractErrorDetail(body, res.status)).replace(/\.?$/, '.'));
+  }
+
+  const parsed = (await res.json()) as TrainSearchResponse;
+  if (parsed?.success !== true) {
+    throw new Error(parsed?.error?.message || 'Train directory unavailable.');
+  }
+  return normalizeTrainRefs(parsed.data);
+}
+
+/**
+ * Catalogue rows arrive as full train documents. Accept the array shape and the
+ * `{ trains: [...] }` wrapper so the mapper stays independent of the envelope.
+ */
+function normalizeTrainRefs(payload: unknown): RealTrainRef[] {
+  if (Array.isArray(payload)) return refsFromList(payload);
+  if (!isObject(payload)) return [];
+  if (Array.isArray(payload.trains)) return refsFromList(payload.trains);
+  return [];
+}
+
+function refsFromList(rows: unknown[]): RealTrainRef[] {
+  const refs: RealTrainRef[] = [];
+  for (const row of rows) {
+    if (!isObject(row)) continue;
+    const number = String(row.number ?? row.trainNumber ?? row.train_number ?? '').trim();
+    if (!number) continue;
+    const name = String(row.name ?? row.trainName ?? row.train_name ?? '').trim();
+    refs.push({ number, name: name || `Train ${number}`, type: (row.type as string | null) ?? null });
+  }
+  return refs;
+}

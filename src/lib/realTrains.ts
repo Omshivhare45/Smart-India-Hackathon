@@ -1,4 +1,4 @@
-import { BetweenTrain, TrainsBetweenData } from './api';
+import { BetweenTrain, RealTrainRef, TrainsBetweenData } from './api';
 import { SeatClass, Train } from '../types/train';
 
 /**
@@ -202,4 +202,58 @@ export function mapBetweenTrain(entry: BetweenTrain): Train {
 
 export function mapTrainsBetween(data: TrainsBetweenData): Train[] {
   return (data.trains || []).map(mapBetweenTrain);
+}
+
+/**
+ * Build a `Train` from a catalogue identity (number + name + optional type).
+ *
+ * The catalogue row carries no route, schedule or live telemetry, so every other
+ * field is a neutral placeholder: no invented distance or times. `LiveTrainTracker`
+ * only needs `trainNumber` (to fetch the real NTES feed) and tolerates an empty
+ * `route`, so selecting a search result still lands on genuine live data.
+ */
+export function mapTrainRef(ref: RealTrainRef): Train {
+  const number = String(ref.number).trim();
+  const name = ref.name || `Train ${number}`;
+  // Prefer the catalogue's own type; fall back to reading it off the name while
+  // the row is still un-enriched.
+  const type = mapTrainType(ref.type || name);
+
+  return {
+    id: `t-${number}`,
+    trainNumber: number,
+    trainName: name,
+    type,
+    direction: 'DOWN',
+    pairTrainNumber: number,
+    sourceCode: '',
+    sourceName: '',
+    destinationCode: '',
+    destinationName: '',
+    departureTime: '—',
+    arrivalTime: '—',
+    duration: '—',
+    distanceKm: 0,
+    runsOnDays: [],
+    currentStatus: {
+      statusText: 'Live tracking',
+      delayMinutes: 0,
+      currentStationCode: '',
+      currentStationName: '',
+      nextStationCode: '',
+      nextStationName: '',
+      distanceCoveredKm: 0,
+      currentSpeedKmH: 0,
+      platform: '—',
+      lastUpdated: '—',
+      etaNextStation: '—',
+      distanceToNextKm: 0,
+      signalStatus: 'GREEN',
+      locoNumber: '—',
+      pantryAvailable: false,
+    },
+    classes: defaultClasses(type),
+    coaches: defaultCoaches(type),
+    route: [],
+  };
 }

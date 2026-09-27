@@ -1,20 +1,39 @@
 @import "tailwindcss";
 
+/* =========================================================================
+   RAILBUDDY — light operations design system
+   Navy primary · orange accent · white surfaces · soft borders & shadows
+   ========================================================================= */
+
 :root {
-  --background: #f8fafc;
-  --foreground: #13213e;
-  --card: #ffffff;
-  --card-subtle: #f4f7fb;
-  --card-border: #e2e8f0;
-  --accent: #1d4ed8;
-  --accent-hover: #2563eb;
-  --accent-dark: #1e40af;
-  --accent-faint: #eff6ff;
-  --accent-glow: rgba(29, 78, 216, 0.18);
-  --teal: #0e7490;
-  --muted: #64748b;
-  --muted-light: #94a3b8;
-  --success: #059669;
+  /* Surfaces */
+  --background: #f6f8fb;
+  --surface: #ffffff;
+  --surface-subtle: #f4f7fb;
+  --surface-border: #e3e8ef;
+  --surface-border-strong: #cfd8e4;
+
+  /* Ink */
+  --foreground: #101f36;
+  --muted: #5b6b82;
+  --muted-light: #8b99ad;
+
+  /* Navy — primary */
+  --navy-900: #0b2242;
+  --navy-800: #0f2f58;
+  --navy-700: #123a6b;
+  --navy-600: #1d4e89;
+  --navy-200: #c9d8ea;
+  --navy-100: #e3ecf6;
+  --navy-50: #eef3f9;
+
+  /* Orange — subtle accent */
+  --orange-600: #c2610f;
+  --orange-500: #e07b2c;
+  --orange-100: #fbe8d5;
+  --orange-50: #fdf4ec;
+
+  --success: #0f8a5f;
   --warning: #b45309;
   --danger: #be123c;
 }
@@ -22,10 +41,16 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --color-accent: var(--accent);
-  --font-sans: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
+  --color-surface: var(--surface);
+  --color-accent: var(--navy-700);
+  --color-navy: var(--navy-700);
+  --color-navy-hover: var(--navy-800);
+  --color-navy-soft: var(--navy-50);
+  --color-line: var(--surface-border);
+  --color-ember: var(--orange-500);
+  --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --font-serif: 'Playfair Display', Georgia, serif;
-  --font-mono: 'JetBrains Mono', monospace;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
 }
 
 * {
@@ -42,8 +67,9 @@ body {
   background-color: var(--background);
   color: var(--foreground);
   overflow-x: hidden;
-  font-family: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 /* Scrollbar */
@@ -64,13 +90,21 @@ body {
 
 /* Selection */
 ::selection {
-  background: rgba(29, 78, 216, 0.18);
-  color: #13213e;
+  background: rgba(18, 58, 107, 0.14);
+  color: #101f36;
 }
 
 /* Card Shadows */
 .shadow-soft {
-  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 4px 16px -4px rgba(16, 24, 40, 0.06);
+  box-shadow:
+    0 1px 2px rgba(16, 24, 40, 0.04),
+    0 6px 20px -8px rgba(16, 24, 40, 0.08);
+}
+
+.shadow-lift {
+  box-shadow:
+    0 1px 2px rgba(16, 24, 40, 0.05),
+    0 18px 40px -22px rgba(11, 34, 66, 0.35);
 }
 
 /* Thin utility scrollbar for dropdowns */
@@ -80,7 +114,149 @@ body {
 }
 
 /* =========================================================================
+   Shared primitives
+   ========================================================================= */
+
+/* Surface card — white panel, hairline border, soft shadow */
+.rb-card {
+  background: var(--surface);
+  border: 1px solid var(--surface-border);
+  border-radius: 14px;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 6px 20px -8px rgba(16, 24, 40, 0.08);
+}
+
+/* Page section heading eyebrow — small uppercase label above a title */
+.rb-eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* Primary action */
+.rb-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 10px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  padding: 0.75rem 1.25rem;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+  cursor: pointer;
+}
+
+.rb-btn-primary {
+  background: var(--navy-700);
+  color: #fff;
+  border: 1px solid var(--navy-700);
+}
+.rb-btn-primary:hover {
+  background: var(--navy-800);
+  border-color: var(--navy-800);
+}
+
+.rb-btn-secondary {
+  background: var(--surface);
+  color: var(--foreground);
+  border: 1px solid var(--surface-border);
+}
+.rb-btn-secondary:hover {
+  border-color: var(--navy-200);
+  background: var(--navy-50);
+  color: var(--navy-700);
+}
+
+.rb-btn-sm {
+  padding: 0.5rem 0.875rem;
+  font-size: 0.8125rem;
+  border-radius: 9px;
+}
+
+/* Status pill (live / source provenance) */
+.rb-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  border-radius: 9999px;
+  border: 1px solid var(--surface-border);
+  background: var(--surface-subtle);
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0.25rem 0.5rem;
+}
+
+/* Small green LIVE badge used in the navbar */
+.rb-live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border-radius: 9999px;
+  background: #e7f7ef;
+  border: 1px solid #b7e5cf;
+  color: #0f7a52;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  padding: 3px 6px;
+}
+
+.rb-live-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 9999px;
+  background: #10b981;
+}
+
+/* Field label above inputs */
+.rb-field-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+/* Inputs / selects */
+.rb-control {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  background: var(--surface);
+  border: 1px solid var(--surface-border);
+  border-radius: 10px;
+  padding: 0.8125rem 1rem;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.rb-control:hover {
+  border-color: var(--navy-200);
+}
+.rb-control:focus-within {
+  border-color: var(--navy-600);
+  box-shadow: 0 0 0 3px rgba(29, 78, 137, 0.1);
+}
+
+/* Data table shared by timetable surfaces */
+.rb-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+/* =========================================================================
    RAILBUDDY MAP — dark operations-surface design system
+   (kept intact so the live map keeps its existing chrome)
    ========================================================================= */
 
 /* Shared tokens for the dark floating map chrome */
@@ -185,5 +361,5 @@ body {
 /* Timeline connector */
 .rb-timeline-line {
   width: 2px;
-  background: linear-gradient(to bottom, rgba(96, 165, 250, 0.7), rgba(71, 85, 105, 0.3));
+  background: linear-gradient(to bottom, rgba(29, 78, 137, 0.7), rgba(71, 85, 105, 0.3));
 }

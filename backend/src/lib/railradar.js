@@ -119,9 +119,44 @@ export async function getTrainRouteGeometry(trainNumber, { format = 'geojson', s
   });
 }
 
-// Fast in-memory autocomplete for train numbers and train names.
+// Provider-side train autocomplete. NOT used by GET /api/trains/search, which
+// serves the MongoDB catalogue so that typing never spends provider quota; this
+// is kept for one-off provider checks and diagnostics.
 export async function searchTrains(q, limit = 10) {
   return railradarFetch('/lookup/search/trains', { params: { q, limit } });
+}
+
+// --------------------------------------------------------------------------
+// Station / train catalogues
+// --------------------------------------------------------------------------
+//
+// Both `/lookup/stations` and `/lookup/trains` are BULK endpoints: they return
+// the entire directory in a single response as a `{ key: name }` map and ignore
+// any `limit`/`page` parameter. Verified 2026-09-26 against the live API:
+//   GET /v1/lookup/stations -> 200, 13,005 entries, meta.activeStationCount=8634
+//   GET /v1/lookup/trains   -> 200, 525,673 bytes of `{ trainNumber: name }`
+// There is no server-side pagination, so the sync fetches once and upserts.
+//
+// Metering is aggressive: x-ratelimit-limit-min=10 and
+// x-ratelimit-limit-month=1000. A 429 body names the exhausted window, e.g.
+// "Monthly quota exceeded. Maximum 1000 requests per month."
+
+let trainCatalogCache = null;
+let trainCatalogCacheAt = 0;
+const TRAIN_CATALOG_TTL_MS = 12 * 60 * 60 * 1000;
+
+/** Full RailRadar train directory (number -> name) as [{number, name}]. */
+export async function getTrainCatalog({ forceRefresh = false } = {}) {
+  const now = Date.now();
+  if (forceRefresh || !trainCatalogCache || now - trainCatalogCacheAt > TRAIN_CATALOG_TTL_MS) {
+    const data = await railradarFetch('/lookup/trains');
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+      throw new APIError('TRAIN_LOOKUP_FAILED', 'RailRadar returned an invalid train directory', 502);
+    }
+    trainCatalogCache = data;
+    trainCatalogCacheAt = now;
+  }
+  return Object.entries(trainCatalogCache).map(([number, name]) => ({ number, name }));
 }
 
 // ------------------------------------------------------------------
